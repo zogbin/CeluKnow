@@ -238,4 +238,68 @@ A: 系统会自动保存历史版本，可在文档编辑页面查看历史。
 
 ---
 
+## CLI 命令行工具
+
+CeluKnow 提供 CLI 工具供自动化脚本和定时任务使用。
+
+### 安装
+
+```bash
+cd cli
+npm install
+npm run link
+```
+
+### 快速开始
+
+```bash
+# 1. 设置环境变量（添加到 ~/.bashrc 或 ~/.zshrc 持久化）
+export CELUKNOW_SERVER=http://localhost:3001
+
+# 2. 登录获取 token
+celuknow login -u your_username -p your_password
+
+# 3. 设置 token 环境变量
+export CELUKNOW_TOKEN=your_token
+
+# 4. 开始使用
+celuknow list                    # 查看文档列表
+celuknow search "关键词"          # 搜索文档
+celuknow get 1                   # 查看文档详情
+celuknow import file.md          # 导入单个文件
+celuknow import ./docs           # 导入整个目录
+celuknow export -o ./backup      # 导出为 ZIP
+celuknow delete 1 --force        # 删除文档
+```
+
+### 命令说明
+
+| 命令 | 说明 | 示例 |
+|------|------|------|
+| `login` | 用户登录获取 token | `celuknow login -u admin -p 123456` |
+| `list` | 列出文档 | `celuknow list --limit 20` |
+| `search` | 搜索文档 | `celuknow search "教程" --limit 10` |
+| `get` | 获取文档详情 | `celuknow get 123` |
+| `import` | 导入 Markdown | `celuknow import ./docs --category 技术` |
+| `export` | 导出为 ZIP | `celuknow export -o ./backup` |
+| `delete` | 删除文档 | `celuknow delete 123 --force` |
+
+### 选项说明
+
+所有命令支持以下全局选项：
+- `-s, --server <url>` - 服务端地址
+- `-t, --token <token>` - 认证 token
+
+也可以通过环境变量设置：
+- `CELUKNOW_SERVER` - 服务端地址
+- `CELUKNOW_TOKEN` - 认证 token
+
+### 优先级
+
+1. 命令行选项（最高）
+2. 环境变量
+3. 默认值（最低）
+
+---
+
 如有问题，请联系管理员。
