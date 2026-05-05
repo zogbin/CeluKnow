@@ -470,7 +470,7 @@ export default function DocumentPage() {
   const renderInlineMarkdown = (text: string) => {
     const elements: JSX.Element[] = []
     
-    // 使用更强大的正则来分割所有元素
+    // 支持粗体、斜体、链接、代码
     const regex = /(\[\[([^\]]+)\]\]|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(`[^`]+`))/g
     let lastIndex = 0
     let match
@@ -495,7 +495,7 @@ export default function DocumentPage() {
           </span>
         )
       } else if (fullMatch.startsWith('**') && fullMatch.endsWith('**')) {
-        elements.push(<strong key={`bold-${match.index}`}>{fullMatch.slice(2, -2)}</strong>)
+        elements.push(<strong key={`bold-${match.index}`} className="font-bold">{fullMatch.slice(2, -2)}</strong>)
       } else if (fullMatch.startsWith('*') && fullMatch.endsWith('*')) {
         elements.push(<em key={`italic-${match.index}`}>{fullMatch.slice(1, -1)}</em>)
       } else if (fullMatch.startsWith('`') && fullMatch.endsWith('`')) {
