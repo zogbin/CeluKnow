@@ -19,12 +19,13 @@ CeluKnow 是一个轻量化的本地知识分享系统，支持 Markdown 文档�
 - **知识关联** - `[[文档标题]]` 语法建立文档链接
 - **知识图谱** - 可视化展示文档引用关系
 - **批量导入导出** - 支持 ZIP 压缩包批量导入，自动按文件夹创建分类
-- **Front Matter** - 支持 YAML 头部元数据（title、category、tags、visibility、author、created_at、updated_at）
+- **Front Matter** - 支持 YAML 头部元数据（title、category、tags、visibility、author、created、updated）
 - **拖拽归类** - 拖拽文档到分类文件夹
 - **评论系统** - 支持发表评论、回复评论、添加表情
 - **全文搜索** - 快速检索文档标题和内容
 - **批量操作** - 批量删除文档、点赞、评论
 - **个人中心** - 统一管理我的文档、点赞、评论，支持修改密码
+- **CLI工具集** - 支持通过AI工具调用的login, import, export, search, list, get, delete
 
 ## 环境要求
 
@@ -124,7 +125,7 @@ export CELUKNOW_TOKEN=your_token
 # 查看帮助
 celuknow --help
 
-# 登录获取 token
+# 登录获取 token（有效期 7 天）
 celuknow login -u username -p password
 
 # 文档操作

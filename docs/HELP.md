@@ -227,7 +227,7 @@ updated_at: 2026-05-02 15:30:00
 
 ## CLI 命令行工具
 
-CeluKnow 提供 CLI 工具供自动化脚本和定时任务使用。
+CeluKnow 提供 CLI 工具供AI模型、自动化脚本和定时任务使用。
 
 ### 安装
 
@@ -243,7 +243,7 @@ npm run link
 # 1. 设置环境变量（添加到 ~/.bashrc 或 ~/.zshrc 持久化）
 export CELUKNOW_SERVER=http://localhost:3001
 
-# 2. 登录获取 token
+# 2. 登录获取 token（有效期 7 天）
 celuknow login -u your_username -p your_password
 
 # 3. 设置 token 环境变量
@@ -258,6 +258,8 @@ celuknow import ./docs           # 导入整个目录
 celuknow export -o ./backup      # 导出为 ZIP
 celuknow delete 1 --force        # 删除文档
 ```
+
+> **注意**：Token 有效期为 7 天，过期后需要重新登录获取新 token。
 
 ### 命令说明
 
