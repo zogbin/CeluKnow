@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import api from '../api/auth'
+import hljs from 'highlight.js'
+import 'highlight.js/styles/github.css'
 
 interface Doc {
   id: number
@@ -55,13 +57,6 @@ export default function DocumentPage() {
   const [selectedVersion, setSelectedVersion] = useState<any>(null)
   const [splitPos, setSplitPos] = useState(50)
   const [theme, setTheme] = useState<'auto' | 'github' | 'light' | 'sepia'>('auto')
-  
-const isDarkMode = () => {
-    if (theme === 'auto') {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches
-    }
-    return false
-  }
   
   const isDarkMode = () => {
     if (theme === 'auto') return window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -341,7 +336,7 @@ const isDarkMode = () => {
             </div>
           </div>
         )}
-        {comment.replies?.length > 0 && renderComments(comment.replies, true)}
+        {(comment.replies?.length ?? 0) > 0 && renderComments(comment.replies || [], true)}
       </div>
     ))
   }
@@ -417,7 +412,8 @@ const isDarkMode = () => {
       // 代码块处理
       if (line.startsWith('```')) {
         if (inCodeBlock) {
-          elements.push(<pre key={`code-${lineIdx}`} className="bg-gray-100 p-4 rounded-lg overflow-x-auto mb-4 text-sm">{codeContent.trim()}</pre>)
+          const highlighted = hljs.highlightAuto(codeContent.trim()).value
+          elements.push(<pre key={`code-${lineIdx}`} className="bg-gray-100 p-4 rounded-lg overflow-x-auto mb-4 text-sm font-mono"><code dangerouslySetInnerHTML={{ __html: highlighted }} /></pre>)
           codeContent = ''
         }
         inCodeBlock = !inCodeBlock
