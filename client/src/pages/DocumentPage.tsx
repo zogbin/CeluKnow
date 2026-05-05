@@ -416,9 +416,24 @@ export default function DocumentPage() {
         return
       }
       
-      // 引用
+      // 引用 - 支持内部标题和格式
       if (line.startsWith('> ')) {
-        elements.push(<blockquote key={lineIdx} className="border-l-4 border-gray-300 pl-4 py-2 my-3 text-gray-600 italic bg-gray-50 rounded-r-lg">{renderInlineMarkdown(line.replace('> ', ''))}</blockquote>)
+        let content = line.replace('> ', '')
+        let blockContent: JSX.Element
+        
+        if (content.startsWith('#### ')) {
+          blockContent = <h4 className="text-base font-semibold mb-2">{renderInlineMarkdown(content.replace('#### ', ''))}</h4>
+        } else if (content.startsWith('### ')) {
+          blockContent = <h3 className="text-lg font-semibold mb-2">{renderInlineMarkdown(content.replace('### ', ''))}</h3>
+        } else if (content.startsWith('## ')) {
+          blockContent = <h2 className="text-xl font-semibold mb-2">{renderInlineMarkdown(content.replace('## ', ''))}</h2>
+        } else if (content.startsWith('# ')) {
+          blockContent = <h1 className="text-2xl font-bold mb-2">{renderInlineMarkdown(content.replace('# ', ''))}</h1>
+        } else {
+          blockContent = <span>{renderInlineMarkdown(content)}</span>
+        }
+        
+        elements.push(<blockquote key={lineIdx} className="border-l-4 border-gray-300 pl-4 py-2 my-3 text-gray-600 bg-gray-50 rounded-r-lg">{blockContent}</blockquote>)
         return
       }
       if (line.startsWith('#### ')) {
