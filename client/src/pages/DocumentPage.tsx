@@ -54,12 +54,18 @@ export default function DocumentPage() {
   const [versions, setVersions] = useState<any[]>([])
   const [selectedVersion, setSelectedVersion] = useState<any>(null)
   const [splitPos, setSplitPos] = useState(50)
-  const [theme, setTheme] = useState<'github' | 'light' | 'dark' | 'sepia'>('github')
+  const [theme, setTheme] = useState<'auto' | 'github' | 'light' | 'sepia'>('auto')
   
-  const getTextColor = (isTitle = false) => {
-    if (theme === 'dark') return isTitle ? 'text-white' : 'text-gray-300'
-    if (theme === 'sepia') return isTitle ? 'text-amber-900' : 'text-amber-800'
-    return ''
+const isDarkMode = () => {
+    if (theme === 'auto') {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches
+    }
+    return false
+  }
+  
+  const isDarkMode = () => {
+    if (theme === 'auto') return window.matchMedia('(prefers-color-scheme: dark)').matches
+    return false
   }
   const [showTags, setShowTags] = useState(false)
   const [likes, setLikes] = useState({ count: 0, liked: false })
@@ -585,9 +591,9 @@ export default function DocumentPage() {
               onChange={(e) => setTheme(e.target.value as any)}
               className="px-2 py-1 text-sm border border-gray-200 rounded-lg bg-white text-gray-600 hover:bg-gray-50"
             >
-              <option value="github">GitHub</option>
+              <option value="auto">自动跟随系统</option>
+              <option value="github">GitHub 风格</option>
               <option value="light">简洁白</option>
-              <option value="dark">夜间模式</option>
               <option value="sepia">护眼色</option>
             </select>
             
@@ -789,9 +795,9 @@ export default function DocumentPage() {
               </div>
             </div>
           ) : (
-            <div className={`rounded-2xl border shadow-sm p-4 md:p-8 min-h-[calc(100vh-200px)] ${theme === 'dark' ? 'bg-gray-900 border-gray-700' : theme === 'sepia' ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-100'}`}>
+            <div className={`rounded-2xl border shadow-sm p-4 md:p-8 min-h-[calc(100vh-200px)] ${theme === 'sepia' ? 'bg-amber-50 border-amber-200' : isDarkMode() ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-100'}`}>
               {content ? (
-                <div className={`prose max-w-none ${theme === 'github' ? 'prose-slate' : theme === 'dark' ? 'prose-invert' : theme === 'sepia' ? 'prose-amber' : 'prose-slate'}`}>
+                <div className={`prose max-w-none ${theme === 'sepia' ? 'prose-amber' : isDarkMode() ? 'prose-invert' : 'prose-slate'}`}>
                   {renderMarkdown(content)}
                 </div>
               ) : (
