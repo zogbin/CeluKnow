@@ -1,8 +1,9 @@
 import axios from 'axios';
 export class CeluKnowAPI {
     constructor(baseURL, token) {
+        const apiBase = baseURL.endsWith('/api') ? baseURL : `${baseURL}/api`;
         this.client = axios.create({
-            baseURL,
+            baseURL: apiBase,
             headers: token ? { Authorization: `Bearer ${token}` } : {}
         });
     }
@@ -10,33 +11,33 @@ export class CeluKnowAPI {
         this.client.defaults.headers['Authorization'] = `Bearer ${token}`;
     }
     async login(username, password) {
-        const res = await this.client.post('/api/auth/login', { username, password });
+        const res = await this.client.post('/auth/login', { username, password });
         return res.data;
     }
     async getDocuments(params) {
-        const res = await this.client.get('/api/documents', { params });
+        const res = await this.client.get('/documents', { params });
         return res.data;
     }
     async searchDocuments(keyword, options) {
-        const res = await this.client.get('/api/documents/search', {
+        const res = await this.client.get('/documents/search', {
             params: { q: keyword, ...options }
         });
         return res.data;
     }
     async getDocument(id) {
-        const res = await this.client.get(`/api/documents/${id}`);
+        const res = await this.client.get(`/documents/${id}`);
         return res.data;
     }
     async deleteDocument(id) {
-        const res = await this.client.delete(`/api/documents/${id}`);
+        const res = await this.client.delete(`/documents/${id}`);
         return res.data;
     }
     async importFiles(files) {
-        const res = await this.client.post('/api/import', { files });
+        const res = await this.client.post('/import-export/import', { files });
         return res.data;
     }
     async exportDocuments() {
-        const res = await this.client.get('/api/export');
+        const res = await this.client.get('/import-export/export');
         return res.data;
     }
 }
