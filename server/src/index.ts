@@ -38,7 +38,17 @@ async function main() {
   });
 
   app.listen(PORT, '0.0.0.0', () => {
-    const localIP = require('os').networkInterfaces()['en0']?.[1]?.address || 'localhost'
+    const interfaces = require('os').networkInterfaces()
+    let localIP = 'localhost'
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name]) {
+        if (iface.family === 'IPv4' && !iface.internal) {
+          localIP = iface.address
+          break
+        }
+      }
+      if (localIP !== 'localhost') break
+    }
     console.log(`Server running on http://localhost:${PORT} or http://${localIP}:${PORT}`);
   });
 }
