@@ -40,10 +40,16 @@ router.put('/:id', authMiddleware, roleMiddleware(['admin', 'editor']), (req: Au
   res.json({ success: true });
 });
 
-router.delete('/:id', authMiddleware, roleMiddleware(['admin']), (req: AuthRequest, res: Response) => {
-  const cats = run('SELECT * FROM categories WHERE id = ? AND user_id = ?', [req.params.id, req.user!.id]);
+router.delete('/:id', authMiddleware, (req: AuthRequest, res: Response) => {
+  const userId = req.user!.id;
+  const userRole = req.user!.role;
+  const cats = run('SELECT * FROM categories WHERE id = ?', [req.params.id]);
   if (cats.length === 0) {
     return res.status(404).json({ error: '分类不存在' });
+  }
+  const cat = cats[0];
+  if (cat.user_id !== userId && userRole !== 'admin') {
+    return res.status(403).json({ error: '权限不足' });
   }
   runUpdate('DELETE FROM categories WHERE id = ?', [req.params.id]);
   res.json({ success: true });

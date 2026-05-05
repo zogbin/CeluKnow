@@ -102,6 +102,59 @@ celuknow/
 - **后端**: Node.js + Express + sql.js (SQLite)
 - **认证**: JWT + bcrypt
 
+## CLI 工具
+
+CeluKnow 提供命令行工具供自动化脚本使用。
+
+### 安装
+
+```bash
+cd cli
+npm install
+npm run link
+```
+
+### 使用方法
+
+```bash
+# 设置环境变量（添加到 ~/.bashrc 或 ~/.zshrc 持久化）
+export CELUKNOW_SERVER=http://localhost:3001
+export CELUKNOW_TOKEN=your_token
+
+# 查看帮助
+celuknow --help
+
+# 登录获取 token
+celuknow login -u username -p password
+
+# 文档操作
+celuknow list                     # 列出文档
+celuknow search "关键词"           # 搜索文档
+celuknow get 1                    # 查看文档详情
+celuknow import file.md            # 导入 Markdown 文件
+celuknow import ./docs            # 导入整个目录
+celuknow export -o ./backup       # 导出为 ZIP
+celuknow delete 1 --force         # 删除文档
+```
+
+### 命令选项
+
+| 命令 | 说明 |
+|------|------|
+| `login` | 用户登录获取 token |
+| `list` | 列出所有文档 |
+| `search <keyword>` | 搜索文档 |
+| `get <id>` | 获取文档详情 |
+| `import <file>` | 导入 Markdown 文件或目录 |
+| `export` | 导出所有文档为 ZIP |
+| `delete <id>` | 删除文档 |
+
+所有命令支持以下全局选项：
+- `-s, --server <url>` - 服务端地址
+- `-t, --token <token>` - 认证 token
+
+也可以通过环境变量 `CELUKNOW_SERVER` 和 `CELUKNOW_TOKEN` 设置。
+
 ## API 端点
 
 ### 认证

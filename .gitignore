@@ -2,11 +2,13 @@
 node_modules/
 client/node_modules/
 server/node_modules/
+cli/node_modules/
 
 # Build outputs
 client/dist/
 server/dist/
 client/build/
+cli/dist/
 
 # Database & data
 data/
@@ -43,3 +45,7 @@ export_*.zip
 export_*/
 knowledge-hub-v*.zip
 openclaw-tutorial/
+
+# CLI
+cli/package-lock.json
+cli/export/

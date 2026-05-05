@@ -3,11 +3,16 @@ import { CeluKnowAPI } from '../api.js';
 
 export const loginCommand = new Command('login')
   .description('用户登录获取 token')
-  .requiredOption('-s, --server <url>', '服务端地址')
+  .option('-s, --server <url>', '服务端地址 (支持环境变量 CELUKNOW_SERVER)')
   .requiredOption('-u, --username <username>', '用户名')
   .requiredOption('-p, --password <password>', '密码')
   .action(async (opts) => {
-    const api = new CeluKnowAPI(opts.server);
+    const server = opts.server || process.env.CELUKNOW_SERVER;
+    if (!server) {
+      console.error('错误: 请通过 -s 指定服务端地址或设置环境变量 CELUKNOW_SERVER');
+      process.exit(1);
+    }
+    const api = new CeluKnowAPI(server);
     try {
       const result = await api.login(opts.username, opts.password);
       console.log('登录成功!');
