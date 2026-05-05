@@ -438,6 +438,12 @@ export default function DocumentPage() {
         return
       }
       
+      // 分隔线
+      if (line.match(/^(-{3,}|\*{3,}|_{3,})$/)) {
+        elements.push(<hr key={lineIdx} className="my-6 border-t border-gray-300" />)
+        return
+      }
+      
       // 列表
       if (line.startsWith('- ')) {
         elements.push(<li key={lineIdx} className="ml-4 mb-1">{renderInlineMarkdown(line.replace('- ', ''))}</li>)
