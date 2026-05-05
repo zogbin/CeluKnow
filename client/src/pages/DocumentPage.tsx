@@ -417,6 +417,10 @@ export default function DocumentPage() {
       }
       
       // 标题 - 跳过 h1，避免与页面标题重复
+      if (line.startsWith('#### ')) {
+        elements.push(<h4 key={lineIdx} className="text-base font-semibold mt-5 mb-2">{line.replace('#### ', '')}</h4>)
+        return
+      }
       if (line.startsWith('### ')) {
         elements.push(<h3 key={lineIdx} className="text-lg font-semibold mt-6 mb-3">{line.replace('### ', '')}</h3>)
         return
