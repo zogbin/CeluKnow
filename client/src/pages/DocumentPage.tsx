@@ -50,6 +50,10 @@ export default function DocumentPage() {
   const [docCategories, setDocCategories] = useState<number[]>([])
   const [docTags, setDocTags] = useState<string[]>([])
   const [allTags, setAllTags] = useState<{id: number, name: string}[]>([])
+  const [showVersions, setShowVersions] = useState(false)
+  const [versions, setVersions] = useState<any[]>([])
+  const [selectedVersion, setSelectedVersion] = useState<any>(null)
+  const [splitPos, setSplitPos] = useState(50)
   const [showTags, setShowTags] = useState(false)
   const [likes, setLikes] = useState({ count: 0, liked: false })
   const [liking, setLiking] = useState(false)
@@ -57,6 +61,15 @@ export default function DocumentPage() {
   const [commentCount, setCommentCount] = useState(0)
   const [viewCount, setViewCount] = useState(0)
   const user = JSON.parse(localStorage.getItem('user') || '{}')
+
+  const loadVersions = async () => {
+    try {
+      const res = await api.get(`/versions/document/${id}`)
+      setVersions(res.data)
+    } catch (err) {
+      console.error(err)
+    }
+  }
 
   useEffect(() => {
     if (!id) return
@@ -110,10 +123,42 @@ export default function DocumentPage() {
     try {
       await api.put(`/documents/${id}`, { content, title: doc?.title })
       setIsEditing(false)
+      setShowVersions(false)
+      setSelectedVersion(null)
     } catch (err: any) {
       alert(err.response?.data?.error || '保存失败')
     }
     setSaving(false)
+  }
+
+  const computeDiff = (oldText: string, newText: string) => {
+    const oldLines = oldText.split('\n')
+    const newLines = newText.split('\n')
+    const result: { type: 'same' | 'add' | 'remove', text: string }[] = []
+    
+    let i = 0, j = 0
+    while (i < oldLines.length || j < newLines.length) {
+      if (i >= oldLines.length) {
+        result.push({ type: 'add', text: newLines[j] })
+        j++
+      } else if (j >= newLines.length) {
+        result.push({ type: 'remove', text: oldLines[i] })
+        i++
+      } else if (oldLines[i] === newLines[j]) {
+        result.push({ type: 'same', text: oldLines[i] })
+        i++, j++
+      } else if (!newLines.slice(j).includes(oldLines[i])) {
+        result.push({ type: 'remove', text: oldLines[i] })
+        i++
+      } else if (!oldLines.slice(i).includes(newLines[j])) {
+        result.push({ type: 'add', text: newLines[j] })
+        j++
+      } else {
+        result.push({ type: 'remove', text: oldLines[i] })
+        i++
+      }
+    }
+    return result
   }
 
   const handleLike = async () => {
@@ -523,7 +568,7 @@ export default function DocumentPage() {
                 {isEditing ? (
                   <>
                     <button 
-                      onClick={() => setIsEditing(false)}
+                      onClick={() => { setIsEditing(false); setShowVersions(false); setSelectedVersion(null) }}
                       className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
                     >
                       取消
@@ -534,6 +579,16 @@ export default function DocumentPage() {
                       className="px-5 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-medium rounded-xl hover:from-blue-600 hover:to-indigo-700 transition-all shadow-lg shadow-blue-500/25 disabled:opacity-50"
                     >
                       {saving ? '保存中...' : '保存'}
+                    </button>
+                    <button 
+                      onClick={() => {
+                        loadVersions()
+                        setShowVersions(!showVersions)
+                        setSelectedVersion(null)
+                      }}
+                      className={`px-3 py-2 rounded-xl transition-colors ${showVersions ? 'bg-purple-50 text-purple-600' : 'text-gray-600 hover:bg-gray-100'}`}
+                    >
+                      历史
                     </button>
                   </>
                 ) : (
@@ -847,6 +902,100 @@ export default function DocumentPage() {
                 <p className="text-sm text-gray-400 text-center py-8">暂无评论</p>
               )}
             </div>
+          </div>
+        )}
+        
+        {showVersions && (
+          <div className={`${selectedVersion ? 'w-96' : 'w-80'} bg-white border-l border-gray-100 flex flex-col h-full`}>
+            <div className="p-4 border-b border-gray-100 shrink-0">
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium text-gray-900">版本历史</h3>
+                <button onClick={() => { setShowVersions(false); setSelectedVersion(null) }} className="p-1 text-gray-400 hover:text-gray-600">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            
+            <div className="overflow-auto p-4 space-y-3" style={{ height: selectedVersion ? `${splitPos}%` : '100%' }}>
+              {versions.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-8">暂无版本记录</p>
+              ) : (
+                versions.map((v: any) => (
+                  <div 
+                    key={v.id} 
+                    onClick={async () => {
+                      const res = await api.get(`/versions/${v.id}`)
+                      setSelectedVersion(res.data)
+                    }}
+                    className={`p-3 rounded-lg cursor-pointer transition-colors ${selectedVersion?.id === v.id ? 'bg-purple-50 border border-purple-200' : 'bg-gray-50 hover:bg-gray-100'}`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm text-gray-500">{v.created_at}</span>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (confirm('确定要恢复到这个版本吗？当前内容将被覆盖。')) {
+                            api.post(`/versions/${v.id}/restore`).then(async () => {
+                              const docRes = await api.get(`/documents/${id}`)
+                              setContent(docRes.data.content || '')
+                              setShowVersions(false)
+                              setSelectedVersion(null)
+                              alert('已恢复到该版本')
+                            })
+                          }
+                        }}
+                        className="text-xs text-blue-600 hover:text-blue-700"
+                      >
+                        恢复
+                      </button>
+                    </div>
+                    <p className="text-sm text-gray-600">{v.message || '自动保存'}</p>
+                  </div>
+                ))
+              )}
+            </div>
+            
+            {selectedVersion && (
+              <div 
+                className="border-t border-gray-100 flex flex-col"
+                style={{ height: `${100 - splitPos}%` }}
+              >
+                <div 
+                  className="h-2 cursor-row-resize hover:bg-blue-400 flex items-center justify-center"
+                  onMouseDown={(e) => {
+                    const startY = e.clientY
+                    const startPos = splitPos
+                    const onMove = (ev: MouseEvent) => {
+                      const delta = ((ev.clientY - startY) / 500) * 100
+                      setSplitPos(Math.min(80, Math.max(20, startPos + delta)))
+                    }
+                    const onUp = () => {
+                      document.removeEventListener('mousemove', onMove)
+                      document.removeEventListener('mouseup', onUp)
+                    }
+                    document.addEventListener('mousemove', onMove)
+                    document.addEventListener('mouseup', onUp)
+                  }}
+                >
+                  <div className="w-8 h-1 bg-gray-300 rounded"></div>
+                </div>
+                <div className="flex-1 overflow-auto p-4">
+                  <div className="text-xs text-gray-500 mb-2">与当前版本对比：</div>
+                  <div className="text-xs bg-gray-50 rounded max-h-full overflow-auto">
+                    {(() => {
+                      const diff = computeDiff(selectedVersion.content || '', content)
+                      return diff.map((d, i) => (
+                        <div key={i} className={`${d.type === 'add' ? 'bg-green-100 text-green-700' : d.type === 'remove' ? 'bg-red-100 text-red-700 line-through' : 'text-gray-600'} px-1`}>
+                          {d.type === 'add' ? '+ ' : d.type === 'remove' ? '- ' : '  '}{d.text}
+                        </div>
+                      ))
+                    })()}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

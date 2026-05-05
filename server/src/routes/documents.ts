@@ -86,7 +86,7 @@ router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
     GROUP BY d.id
     ${orderBy}
   `, [userId]);
-  // 处理分类ID
+  
   const result = docs.map((d: any) => {
     const category_ids = d.category_ids ? d.category_ids.split(',').map((id: string) => parseInt(id)).filter((id: number) => !isNaN(id)) : []
     return { 
@@ -100,19 +100,55 @@ router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
 });
 
 router.get('/graph', authMiddleware, (req: AuthRequest, res: Response) => {
-  const docs = run('SELECT id, title FROM documents') as any[];
-  const allDocs = run('SELECT id, content FROM documents') as any[];
+  const userId = req.user!.id
+  const docs = run('SELECT id, title FROM documents WHERE visibility = "public" OR author_id = ?', [userId]) as any[];
+  const allDocs = run('SELECT id, content FROM documents WHERE visibility = "public" OR author_id = ?', [userId]) as any[];
   const links: any[] = [];
+  const linkSet = new Set<string>();
+  
+  // Link by [[document title]] syntax
   for (const doc of allDocs) {
     const matches = (doc.content || '').match(/\[\[([^\]]+)\]\]/g) || [];
     for (const match of matches) {
       const title = match.replace('[[', '').replace(']]', '');
       const target = docs.find(d => d.title === title);
       if (target) {
-        links.push({ source: doc.id, target: target.id });
+        const key = `${Math.min(doc.id, target.id)}-${Math.max(doc.id, target.id)}`
+        if (!linkSet.has(key)) {
+          linkSet.add(key)
+          links.push({ source: doc.id, target: target.id, type: 'link' });
+        }
       }
     }
   }
+  
+  // Link by shared tags
+  const docTags = run(`
+    SELECT dt.document_id, t.name as tag_name
+    FROM document_tags dt
+    JOIN tags t ON dt.tag_id = t.id
+    WHERE dt.document_id IN (SELECT id FROM documents WHERE visibility = 'public' OR author_id = ?)
+  `, [userId]) as any[];
+  
+  const tagDocs: Record<string, number[]> = {}
+  for (const dt of docTags) {
+    if (!tagDocs[dt.tag_name]) tagDocs[dt.tag_name] = []
+    tagDocs[dt.tag_name].push(dt.document_id)
+  }
+  
+  for (const tagName in tagDocs) {
+    const docIds = tagDocs[tagName]
+    for (let i = 0; i < docIds.length; i++) {
+      for (let j = i + 1; j < docIds.length; j++) {
+        const key = `${Math.min(docIds[i], docIds[j])}-${Math.max(docIds[i], docIds[j])}`
+        if (!linkSet.has(key)) {
+          linkSet.add(key)
+          links.push({ source: docIds[i], target: docIds[j], type: 'tag', label: tagName })
+        }
+      }
+    }
+  }
+  
   res.json({ nodes: docs.map(d => ({ id: d.id, name: d.title })), links });
 });
 

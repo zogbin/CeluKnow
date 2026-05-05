@@ -38,6 +38,10 @@ router.post('/import', authMiddleware, async (req: AuthRequest, res: Response) =
     const userId = req.user!.id;
     const files = req.body.files as { name: string; content: string; folder?: string }[];
     
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: '未提供文件' })
+    }
+    
     const results: { name: string; success: boolean; category?: string; error?: string; id?: number }[] = [];
     
     for (const file of files) {
@@ -67,13 +71,24 @@ router.post('/import', authMiddleware, async (req: AuthRequest, res: Response) =
         if (categories.length > 0 && categories[0].id) {
           categoryId = categories[0].id;
         } else {
-          categoryId = runInsert('INSERT INTO categories (name, color, icon) VALUES (?, ?, ?)', 
-            [folder, '#6366f1', 'folder']);
+          categoryId = runInsert('INSERT INTO categories (name, user_id, color, icon) VALUES (?, ?, ?, ?)', 
+            [folder, userId, '#6366f1', 'folder']);
         }
         
+        const getLocalNow = () => {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  const s = String(d.getSeconds()).padStart(2, '0')
+  return `${y}-${m}-${day} ${h}:${min}:${s}`
+}
+const now = getLocalNow()
         const docId = runInsert(
           `INSERT INTO documents (title, content, author_id, visibility, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-          [title, body, authorId, visibility, createdAt || null, updatedAt || null]
+          [title, body, authorId, visibility, createdAt || now, updatedAt || now]
         );
         
         runUpdate('INSERT INTO document_categories (document_id, category_id) VALUES (?, ?)', [docId, categoryId]);

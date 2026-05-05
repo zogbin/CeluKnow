@@ -45,40 +45,25 @@ export default function GraphPage() {
 
   const loadData = async () => {
     try {
-      const res = await api.get('/documents')
-      const docs = res.data
+      const res = await api.get('/documents/graph')
+      const { nodes, links } = res.data
       
-      const linkSet = new Set<string>()
-      const links: Link[] = []
-      
-      docs.forEach((docItem: any) => {
-        if (docItem.content) {
-          const matches = docItem.content.match(/\[\[([^\]]+)\]\]/g) || []
-          matches.forEach((match: string) => {
-            const title = match.replace('[[', '').replace(']]', '')
-            const targetDoc = docs.find((d: any) => d.title === title)
-            if (targetDoc) {
-              const key = `${Math.min(docItem.id, targetDoc.id)}-${Math.max(docItem.id, targetDoc.id)}`
-              if (!linkSet.has(key)) {
-                linkSet.add(key)
-                links.push({ source: docItem.id, target: targetDoc.id })
-              }
-            }
-          })
-        }
-      })
-      
-      nodesRef.current = docs.map((doc: any) => ({
-        id: doc.id,
-        title: doc.title,
+      nodesRef.current = nodes.map((n: any) => ({
+        id: n.id,
+        title: n.name,
         x: Math.random() * 400 + 200,
         y: Math.random() * 300 + 150,
         vx: 0,
         vy: 0
       }))
-      linksRef.current = links
-      setNodes(docs)
-      setStats({ nodes: docs.length, links: links.length })
+      linksRef.current = links.map((l: any) => ({
+        source: l.source,
+        target: l.target,
+        type: l.type || 'link',
+        label: l.label
+      }))
+      setNodes(nodes.map((n: any) => ({ id: n.id, title: n.name })))
+      setStats({ nodes: nodes.length, links: links.length })
     } catch (err) {
       console.error(err)
     }
@@ -211,8 +196,6 @@ export default function GraphPage() {
     ctx.translate(offsetX, offsetY)
     ctx.scale(scale, scale)
 
-    ctx.strokeStyle = '#E5E7EB'
-    ctx.lineWidth = 1.5
     links.forEach(link => {
       const source = nodes.find(n => n.id === link.source)
       const target = nodes.find(n => n.id === link.target)
@@ -220,7 +203,17 @@ export default function GraphPage() {
         ctx.beginPath()
         ctx.moveTo(source.x, source.y)
         ctx.lineTo(target.x, target.y)
+        if (link.type === 'tag') {
+          ctx.strokeStyle = '#F59E0B'
+          ctx.lineWidth = 1.5
+          ctx.setLineDash([4, 2])
+        } else {
+          ctx.strokeStyle = '#E5E7EB'
+          ctx.lineWidth = 1.5
+          ctx.setLineDash([])
+        }
         ctx.stroke()
+        ctx.setLineDash([])
       }
     })
 
@@ -372,6 +365,14 @@ export default function GraphPage() {
               <p className="text-sm text-gray-600">
                 <span className="text-blue-500 font-medium">{stats.nodes}</span> 个文档，<span className="text-gray-400">{stats.links}</span> 个链接
               </p>
+              <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                <span className="flex items-center gap-1">
+                  <span className="w-4 h-0.5 bg-gray-200"></span> 文档引用
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-4 h-0.5 bg-amber-400" style={{ borderStyle: 'dashed' }}></span> 相同标签
+                </span>
+              </div>
               <p className="text-xs text-gray-400 mt-1">点击节点跳转到文档</p>
             </div>
             <canvas
