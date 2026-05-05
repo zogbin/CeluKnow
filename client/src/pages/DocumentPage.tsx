@@ -418,7 +418,7 @@ export default function DocumentPage() {
       
       // 引用
       if (line.startsWith('> ')) {
-        elements.push(<blockquote key={lineIdx} className="border-l-4 border-gray-300 pl-4 py-2 my-3 text-gray-600 italic bg-gray-50 rounded-r-lg">{line.replace('> ', '')}</blockquote>)
+        elements.push(<blockquote key={lineIdx} className="border-l-4 border-gray-300 pl-4 py-2 my-3 text-gray-600 italic bg-gray-50 rounded-r-lg">{renderInlineMarkdown(line.replace('> ', ''))}</blockquote>)
         return
       }
       if (line.startsWith('#### ')) {
