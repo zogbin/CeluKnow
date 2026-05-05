@@ -416,7 +416,11 @@ export default function DocumentPage() {
         return
       }
       
-      // 标题 - 跳过 h1，避免与页面标题重复
+      // 引用
+      if (line.startsWith('> ')) {
+        elements.push(<blockquote key={lineIdx} className="border-l-4 border-gray-300 pl-4 py-2 my-3 text-gray-600 italic bg-gray-50 rounded-r-lg">{line.replace('> ', '')}</blockquote>)
+        return
+      }
       if (line.startsWith('#### ')) {
         elements.push(<h4 key={lineIdx} className="text-base font-semibold mt-5 mb-2">{line.replace('#### ', '')}</h4>)
         return
