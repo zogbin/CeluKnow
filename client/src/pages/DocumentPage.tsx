@@ -54,6 +54,13 @@ export default function DocumentPage() {
   const [versions, setVersions] = useState<any[]>([])
   const [selectedVersion, setSelectedVersion] = useState<any>(null)
   const [splitPos, setSplitPos] = useState(50)
+  const [theme, setTheme] = useState<'github' | 'light' | 'dark' | 'sepia'>('github')
+  
+  const getTextColor = (isTitle = false) => {
+    if (theme === 'dark') return isTitle ? 'text-white' : 'text-gray-300'
+    if (theme === 'sepia') return isTitle ? 'text-amber-900' : 'text-amber-800'
+    return ''
+  }
   const [showTags, setShowTags] = useState(false)
   const [likes, setLikes] = useState({ count: 0, liked: false })
   const [liking, setLiking] = useState(false)
@@ -573,6 +580,17 @@ export default function DocumentPage() {
               <span className="text-sm font-medium hidden md:inline">{viewCount}</span>
             </div>
             
+            <select 
+              value={theme} 
+              onChange={(e) => setTheme(e.target.value as any)}
+              className="px-2 py-1 text-sm border border-gray-200 rounded-lg bg-white text-gray-600 hover:bg-gray-50"
+            >
+              <option value="github">GitHub</option>
+              <option value="light">简洁白</option>
+              <option value="dark">夜间模式</option>
+              <option value="sepia">护眼色</option>
+            </select>
+            
             <button 
               onClick={() => { 
                 api.get(`/comments/document/${id}`).then(res => setComments(res.data)).catch(() => {})
@@ -771,9 +789,9 @@ export default function DocumentPage() {
               </div>
             </div>
           ) : (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 md:p-8 min-h-[calc(100vh-200px)]">
+            <div className={`rounded-2xl border shadow-sm p-4 md:p-8 min-h-[calc(100vh-200px)] ${theme === 'dark' ? 'bg-gray-900 border-gray-700' : theme === 'sepia' ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-100'}`}>
               {content ? (
-                <div className="prose prose-slate max-w-none">
+                <div className={`prose max-w-none ${theme === 'github' ? 'prose-slate' : theme === 'dark' ? 'prose-invert' : theme === 'sepia' ? 'prose-amber' : 'prose-slate'}`}>
                   {renderMarkdown(content)}
                 </div>
               ) : (
