@@ -88,6 +88,11 @@ celuknow/
 │   │   ├── db.ts         # 数据库
 │   │   └── utils/        # 工具函数
 │   └── package.json
+├── cli/                  # CLI 命令行工具
+│   ├── src/
+│   │   ├── api.ts        # API 客户端
+│   │   └── commands/    # 命令实现
+│   └── package.json
 ├── docs/                 # 文档目录
 │   └── HELP.md           # 使用帮助
 ├── data/                 # 数据目录
