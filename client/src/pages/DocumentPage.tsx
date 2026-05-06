@@ -56,8 +56,6 @@ export default function DocumentPage() {
   const [versions, setVersions] = useState<any[]>([])
   const [selectedVersion, setSelectedVersion] = useState<any>(null)
   const [splitPos, setSplitPos] = useState(50)
-  
-  const isDarkMode = () => window.matchMedia('(prefers-color-scheme: dark)').matches
   const [showTags, setShowTags] = useState(false)
   const [likes, setLikes] = useState({ count: 0, liked: false })
   const [liking, setLiking] = useState(false)
@@ -858,9 +856,9 @@ export default function DocumentPage() {
               </div>
             </div>
           ) : (
-            <div className={`rounded-2xl border shadow-sm p-4 md:p-8 min-h-[calc(100vh-200px)] ${isDarkMode() ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-100'}`}>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 md:p-8 min-h-[calc(100vh-200px)]">
               {content ? (
-                <div className={`prose max-w-none ${isDarkMode() ? 'prose-invert' : 'prose-slate'}`}>
+                <div className="prose prose-slate max-w-none">
                   {renderMarkdown(content)}
                 </div>
               ) : (
