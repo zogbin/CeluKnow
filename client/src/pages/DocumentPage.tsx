@@ -556,8 +556,8 @@ export default function DocumentPage() {
   const renderInlineMarkdown = (text: string) => {
     const elements: JSX.Element[] = []
     
-    // 支持粗体、斜体、链接、代码
-    const regex = /(\[\[([^\]]+)\]\]|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(`[^`]+`))/g
+    // 支持文档链接 [[]]、标准链接 []()、粗体、斜体、代码
+    const regex = /(\[\[([^\]]+)\]\]|\[([^\]]+)\]\(([^)]+)\)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(`[^`]+`))/g
     let lastIndex = 0
     let match
     
@@ -580,12 +580,28 @@ export default function DocumentPage() {
             {title}
           </span>
         )
-      } else if (fullMatch.startsWith('**') && fullMatch.endsWith('**')) {
-        elements.push(<strong key={`bold-${match.index}`} className="font-bold">{fullMatch.slice(2, -2)}</strong>)
-      } else if (fullMatch.startsWith('*') && fullMatch.endsWith('*')) {
-        elements.push(<em key={`italic-${match.index}`}>{fullMatch.slice(1, -1)}</em>)
-      } else if (fullMatch.startsWith('`') && fullMatch.endsWith('`')) {
-        elements.push(<code key={`code-${match.index}`} className="px-1 py-0.5 bg-gray-100 rounded text-sm font-mono">{fullMatch.slice(1, -1)}</code>)
+      } else {
+        // 标准 Markdown 链接 [text](url)
+        const linkMatch = fullMatch.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
+        if (linkMatch) {
+          elements.push(
+            <a 
+              key={`alink-${match.index}`}
+              href={linkMatch[2]}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:text-blue-700 underline"
+            >
+              {linkMatch[1]}
+            </a>
+          )
+        } else if (fullMatch.startsWith('**') && fullMatch.endsWith('**')) {
+          elements.push(<strong key={`bold-${match.index}`} className="font-bold">{fullMatch.slice(2, -2)}</strong>)
+        } else if (fullMatch.startsWith('*') && fullMatch.endsWith('*')) {
+          elements.push(<em key={`italic-${match.index}`}>{fullMatch.slice(1, -1)}</em>)
+        } else if (fullMatch.startsWith('`') && fullMatch.endsWith('`')) {
+          elements.push(<code key={`code-${match.index}`} className="px-1 py-0.5 bg-gray-100 rounded text-sm font-mono">{fullMatch.slice(1, -1)}</code>)
+        }
       }
       
       lastIndex = match.index + fullMatch.length
