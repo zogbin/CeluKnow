@@ -9,7 +9,7 @@ export default function Layout({ children }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-x-hidden">
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900 overflow-x-hidden">
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div 
@@ -27,12 +27,12 @@ export default function Layout({ children }: LayoutProps) {
       </div>
       
       {/* Main content */}
-      <main className="flex-1 overflow-auto bg-gray-50 min-w-0 overflow-x-hidden">
+      <main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-900 min-w-0 overflow-x-hidden">
         {/* Mobile header */}
-        <div className="lg:hidden flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-100">
+        <div className="lg:hidden flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
           <button 
             onClick={() => setSidebarOpen(true)}
-            className="p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+            className="p-2 -ml-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
           >
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
