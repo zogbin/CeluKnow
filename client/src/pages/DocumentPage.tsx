@@ -403,14 +403,78 @@ export default function DocumentPage() {
     
     let inCodeBlock = false
     let codeContent = ''
+    let codeLanguage = ''
+    let inTable = false
+    let tableHeaders: string[] = []
+    let tableRows: string[][] = []
+    
+    const flushTable = () => {
+      if (tableHeaders.length > 0) {
+        elements.push(
+          <div key={`table-${elements.length}`} className="overflow-x-auto mb-4">
+            <table className="min-w-full border border-gray-200">
+              <thead>
+                <tr className="bg-gray-50">
+                  {tableHeaders.map((header, hi) => (
+                    <th key={hi} className="px-4 py-2 text-left text-sm font-semibold text-gray-700 border-b border-gray-200">{header}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tableRows.map((row, ri) => (
+                  <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    {row.map((cell, ci) => (
+                      <td key={ci} className="px-4 py-2 text-sm text-gray-600 border-b border-gray-200">{cell}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+        tableHeaders = []
+        tableRows = []
+        inTable = false
+      }
+    }
     
     lines.forEach((line, lineIdx) => {
+      // 表格处理
+      if (line.startsWith('|')) {
+        if (!inTable) {
+          inTable = true
+          tableRows = []
+          tableHeaders = line.split('|').filter(cell => cell.trim())
+        } else if (line.includes('---')) {
+          // 分隔行，跳过
+        } else {
+          const cells = line.split('|').filter(cell => cell.trim())
+          tableRows.push(cells)
+        }
+        return
+      } else if (inTable) {
+        flushTable()
+      }
+      
       // 代码块处理
       if (line.startsWith('```')) {
         if (inCodeBlock) {
-          const highlighted = hljs.highlightAuto(codeContent.trim()).value
+          const code = codeContent.trim()
+          let highlighted: string
+          try {
+            if (codeLanguage && hljs.getLanguage(codeLanguage)) {
+              highlighted = hljs.highlight(code, { language: codeLanguage, ignoreIllegals: true }).value
+            } else {
+              highlighted = hljs.highlightAuto(code).value
+            }
+          } catch {
+            highlighted = code.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          }
           elements.push(<pre key={`code-${lineIdx}`} className="bg-gray-100 p-4 rounded-lg overflow-x-auto mb-4 text-sm font-mono"><code dangerouslySetInnerHTML={{ __html: highlighted }} /></pre>)
           codeContent = ''
+          codeLanguage = ''
+        } else {
+          codeLanguage = line.slice(3).trim()
         }
         inCodeBlock = !inCodeBlock
         return
@@ -483,6 +547,8 @@ export default function DocumentPage() {
       // 段落中的 [[链接]]
       elements.push(<p key={lineIdx} className="mb-2">{renderInlineMarkdown(line)}</p>)
     })
+    
+    flushTable()
     
     return <div>{elements}</div>
   }
