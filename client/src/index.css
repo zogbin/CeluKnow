@@ -20,3 +20,58 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+.meeting-material-content .w-md-editor,
+.meeting-material-content .w-md-editor-text-pre,
+.meeting-material-content .w-md-editor-text-pre code,
+.meeting-material-content pre,
+.meeting-material-content pre code {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.meeting-material-content .w-md-editor-text-pre,
+.meeting-material-content .w-md-editor-text-pre * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.meeting-material-content .w-md-editor-toolbar button,
+.meeting-material-content .w-md-editor-toolbar li,
+.meeting-material-content [data-name="copy"],
+.meeting-material-content [data-name="live"],
+.meeting-material-content [data-name="del"],
+.meeting-material-content [data-name="undo"],
+.meeting-material-content [data-name="redo"],
+.meeting-material-content button[data-name],
+.meeting-material-content li[data-name] {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+.meeting-material-content .w-md-editor-text-pre button,
+.meeting-material-content .w-md-editor-text-pre span[aria-label],
+.meeting-material-content .w-md-editor-text-pre span[role],
+.meeting-material-content pre > code + span,
+.meeting-material-content pre::after,
+.w-md-editor .w-md-editor-text-pre > code + span {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.w-md-editor-text-pre > code + span::before,
+.w-md-editor-text-pre > code + span::after,
+.w-md-editor-text-pre > code::after {
+  content: none !important;
+  display: none !important;
+}
+
+div[class*="copy"] button,
+span[class*="copy"] button,
+[class*="copy"] span {
+  display: none !important;
+}

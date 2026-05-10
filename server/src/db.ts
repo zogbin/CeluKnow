@@ -173,6 +173,102 @@ export async function initDb(): Promise<Database> {
     }
   } catch (e) { console.log('tags migration:', e) }
 
+  // Meetings table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS meetings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      description TEXT,
+      agenda TEXT,
+      meeting_date DATETIME NOT NULL,
+      meeting_end DATETIME NOT NULL,
+      location TEXT,
+      organizer_id INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (organizer_id) REFERENCES users(id)
+    )
+  `)
+
+  try {
+    const mtCols = db.exec("PRAGMA table_info(meetings)")
+    const hasEnd = mtCols[0]?.values?.some((row: any) => row[1] === 'meeting_end')
+    if (!hasEnd) {
+      db.run("ALTER TABLE meetings ADD COLUMN meeting_end DATETIME")
+    }
+  } catch (e) { console.log('meetings migration:', e) }
+
+  // Agendas table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS meeting_agendas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
+    )
+  `)
+
+  // Meeting materials table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS meeting_materials (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      file_path TEXT,
+      file_type TEXT,
+      description TEXT,
+      content TEXT,
+      uploader_id INTEGER NOT NULL,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
+      FOREIGN KEY (uploader_id) REFERENCES users(id)
+    )
+  `)
+
+  try {
+    const mmCols = db.exec("PRAGMA table_info(meeting_materials)")
+    const hasContent = mmCols[0]?.values?.some((row: any) => row[1] === 'content')
+    if (!hasContent) {
+      db.run("ALTER TABLE meeting_materials ADD COLUMN content TEXT")
+    }
+    const hasParentId = mmCols[0]?.values?.some((row: any) => row[1] === 'parent_id')
+    if (!hasParentId) {
+      db.run("ALTER TABLE meeting_materials ADD COLUMN parent_id INTEGER REFERENCES meeting_materials(id) ON DELETE CASCADE")
+    }
+    const hasIsFolder = mmCols[0]?.values?.some((row: any) => row[1] === 'is_folder')
+    if (!hasIsFolder) {
+      db.run("ALTER TABLE meeting_materials ADD COLUMN is_folder INTEGER DEFAULT 0")
+    }
+    const hasAgendaId = mmCols[0]?.values?.some((row: any) => row[1] === 'agenda_id')
+    if (!hasAgendaId) {
+      db.run("ALTER TABLE meeting_materials ADD COLUMN agenda_id INTEGER REFERENCES meeting_agendas(id) ON DELETE SET NULL")
+    }
+  } catch (e) { console.log('meeting_materials migration:', e) }
+
+  try {
+    const mmCols = db.exec("PRAGMA table_info(meeting_materials)")
+    const hasOrder = mmCols[0]?.values?.some((row: any) => row[1] === 'sort_order')
+    if (!hasOrder) {
+      db.run("ALTER TABLE meeting_materials ADD COLUMN sort_order INTEGER DEFAULT 0")
+    }
+  } catch (e) { console.log('meeting_materials migration:', e) }
+
+  // Meeting attendees table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS meeting_attendees (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(meeting_id, user_id),
+      FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `)
+
   return db;
 }
 

@@ -140,6 +140,12 @@ export default function Home() {
             >
               使用帮助
             </button>
+            <button 
+              onClick={() => navigate('/meetings')}
+              className="px-2 py-1 text-xs text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+            >
+              会议
+            </button>
           </div>
           <p className="text-gray-500 mt-1">共 {docs.length} 篇文档</p>
         </div>

@@ -8,6 +8,7 @@ import GraphPage from './pages/GraphPage'
 import UsersPage from './pages/UsersPage'
 import Profile from './pages/Profile'
 import HelpPage from './pages/HelpPage'
+import MeetingsPage from './pages/MeetingsPage'
 
 function App() {
   const token = localStorage.getItem('token')
@@ -23,6 +24,7 @@ function App() {
           <Route path="graph" element={<GraphPage />} />
           <Route path="users" element={<UsersPage />} />
           <Route path="profile" element={<Profile />} />
+          <Route path="meetings" element={<MeetingsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

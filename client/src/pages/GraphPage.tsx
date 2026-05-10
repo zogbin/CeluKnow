@@ -17,6 +17,8 @@ interface Node extends NodeData {
 interface Link {
   source: number
   target: number
+  type?: string
+  label?: string
 }
 
 export default function GraphPage() {
