@@ -96,9 +96,9 @@ export default function MeetingsPage() {
         const days = Math.floor(diff / (1000 * 60 * 60 * 24))
         const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
         const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-        if (days > 0) setCountdown(`${days}天${hours}小时`)
-        else if (hours > 0) setCountdown(`${hours}小时${minutes}分钟`)
-        else setCountdown(`${minutes}分钟`)
+        if (days > 0) setCountdown(`${days}天${hours}小时后开始`)
+        else if (hours > 0) setCountdown(`${hours}小时${minutes}分钟后开始`)
+        else setCountdown(`${minutes}分钟后开始`)
       } else {
         setCountdown('已结束')
       }
@@ -603,8 +603,8 @@ const handleOpenWithWPS = async (filePath: string, x: number = 0, y: number = 0)
       )}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <div>
-          <h2 className="text-2xl font-semibold text-gray-900">会议资料</h2>
-          <p className="text-gray-500 mt-1">共 {meetings.length} 个会议</p>
+          <h2 className="text-2xl font-semibold text-gray-900">会议中心</h2>
+          <p className="text-gray-500 mt-1">共 {meetings.filter(m => new Date(m.meeting_date) > Date.now()).length} 个未召开会议</p>
         </div>
         {canCreateMeeting && (
           <button 
@@ -672,7 +672,16 @@ const handleOpenWithWPS = async (filePath: string, x: number = 0, y: number = 0)
                     <h3 className="text-xl font-bold text-gray-900">{selectedMeeting.title}</h3>
                     {selectedMeeting.location && <span className="text-sm text-gray-500">· {selectedMeeting.location}</span>}
                     {selectedMeeting.expired ? (
-                      <span className="px-2 py-1 bg-red-100 text-red-600 rounded-lg text-sm">已过期</span>
+                      <div className="inline-flex items-center gap-2 px-3 py-1 bg-gray-100 text-gray-600 rounded-lg text-sm">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="font-semibold">
+                          {new Date(selectedMeeting.meeting_date).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short' })}
+                          {selectedMeeting.meeting_end && <span className="opacity-80"> - {new Date(selectedMeeting.meeting_end).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>}
+                        </span>
+                        <span className="text-xs">已完成</span>
+                      </div>
                     ) : (
                       <div className="inline-flex items-center gap-2 px-3 py-1 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-lg text-sm">
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -799,10 +808,10 @@ const handleOpenWithWPS = async (filePath: string, x: number = 0, y: number = 0)
                               >
                                 {agendaMaterials.filter(m => !m.parent_id).map(m => (
                                   <div key={m.id}>
-                                    <div className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-100">
+                                    <div className={`flex items-center justify-between p-2 rounded-lg ${!selectedMeeting.expired || m.is_folder === 1 ? 'hover:bg-gray-100' : ''}`}>
                                       <div 
-                                        onClick={(e) => handleMaterialClick(m, e)}
-                                        className="flex items-center gap-2 cursor-pointer flex-1"
+                                        onClick={(e) => (!selectedMeeting.expired || m.is_folder === 1) && handleMaterialClick(m, e)}
+                                        className={`flex items-center gap-2 cursor-pointer flex-1 ${selectedMeeting.expired && m.is_folder !== 1 ? 'opacity-50 pointer-events-none' : ''}`}
                                       >
                                         {m.is_folder === 1 ? (
                                           <svg className={`w-5 h-5 text-amber-500 ${expandedFolders.has(m.id) ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -833,10 +842,10 @@ const handleOpenWithWPS = async (filePath: string, x: number = 0, y: number = 0)
                                     {m.is_folder === 1 && expandedFolders.has(m.id) && (
                                       <div className="ml-6 space-y-1 border-l-2 border-gray-200 pl-2">
                                         {materials.filter(child => child.parent_id === m.id).map(child => (
-                                          <div key={child.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-100">
+                                          <div key={child.id} className={`flex items-center justify-between p-2 rounded-lg ${!selectedMeeting.expired ? 'hover:bg-gray-100' : ''}`}>
                                             <div 
-                                              onClick={(e) => handleMaterialClick(child, e)}
-                                              className="flex items-center gap-2 cursor-pointer flex-1"
+                                              onClick={(e) => !selectedMeeting.expired && handleMaterialClick(child, e)}
+                                              className={`flex items-center gap-2 cursor-pointer flex-1 ${selectedMeeting.expired ? 'opacity-50 pointer-events-none' : ''}`}
                                             >
                                               {child.file_path ? getFileIcon(child.file_path) : (
                                                 <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -873,8 +882,8 @@ const handleOpenWithWPS = async (filePath: string, x: number = 0, y: number = 0)
                       <div key={m.id}>
                         <div className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-100 border border-gray-100">
                           <div 
-                            onClick={(e) => handleMaterialClick(m, e)}
-                            className="flex items-center gap-2 cursor-pointer flex-1"
+                            onClick={(e) => (!selectedMeeting.expired || m.is_folder === 1) && handleMaterialClick(m, e)}
+                            className={`flex items-center gap-2 cursor-pointer flex-1 ${selectedMeeting.expired && m.is_folder !== 1 ? 'opacity-50 pointer-events-none' : ''}`}
                           >
                             {m.is_folder === 1 ? (
                               <svg className={`w-5 h-5 text-amber-500 ${expandedFolders.has(m.id) ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -906,10 +915,10 @@ const handleOpenWithWPS = async (filePath: string, x: number = 0, y: number = 0)
                         {m.is_folder === 1 && expandedFolders.has(m.id) && (
                           <div className="ml-6 space-y-1 border-l-2 border-gray-200 pl-2">
                             {materials.filter(child => child.parent_id === m.id).map(child => (
-                              <div key={child.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-100">
+                              <div key={child.id} className={`flex items-center justify-between p-2 rounded-lg ${!selectedMeeting.expired ? 'hover:bg-gray-100' : ''}`}>
                                 <div 
-                                  onClick={(e) => handleMaterialClick(child, e)}
-                                  className="flex items-center gap-2 cursor-pointer flex-1"
+                                  onClick={(e) => !selectedMeeting.expired && handleMaterialClick(child, e)}
+                                  className={`flex items-center gap-2 cursor-pointer flex-1 ${selectedMeeting.expired ? 'opacity-50 pointer-events-none' : ''}`}
                                 >
                                   {child.file_path ? getFileIcon(child.file_path) : (
                                     <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -935,7 +944,7 @@ const handleOpenWithWPS = async (filePath: string, x: number = 0, y: number = 0)
                     {(!selectedMeeting.agendas || selectedMeeting.agendas.length === 0) && materials.filter(m => !m.agenda_id).length === 0 && (
                       <div className={`text-center py-8 border-2 border-dashed rounded-xl ${selectedMeeting.expired ? 'border-gray-200' : selectedMeeting.is_organizer ? 'border-gray-300 hover:border-gray-400' : 'border-gray-200'}`}>
                         <p className="text-sm text-gray-400">
-                          {selectedMeeting.expired ? '会议已过期，无法查看资料' : selectedMeeting.is_organizer ? '拖拽文件或添加议程到此处' : '暂无会议资料'}
+                          {selectedMeeting.expired ? '会议已完成，资料仅可查看' : selectedMeeting.is_organizer ? '拖拽文件或添加议程到此处' : '暂无会议资料'}
                         </p>
                       </div>
                     )}
@@ -964,7 +973,15 @@ const handleOpenWithWPS = async (filePath: string, x: number = 0, y: number = 0)
             >
               <div className="flex items-start justify-between">
                 <h4 className="font-medium text-gray-900 text-sm line-clamp-2">{meeting.title}</h4>
-                {meeting.expired && <span className="text-xs text-red-500 shrink-0">已过期</span>}
+                {(() => {
+                  const start = new Date(meeting.meeting_date).getTime()
+                  const end = meeting.meeting_end ? new Date(meeting.meeting_end).getTime() : null
+                  const now = Date.now()
+                  const inProgress = end && now >= start && now <= end
+                  if (inProgress) return <span className="text-xs text-green-600 shrink-0">会议进行中</span>
+                  if (meeting.expired) return <span className="text-xs text-gray-500 shrink-0">已完成</span>
+                  return null
+                })()}
               </div>
               <p className="text-xs text-gray-500 mt-2">
                 {new Date(meeting.meeting_date).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short' })}
