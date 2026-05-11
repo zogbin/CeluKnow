@@ -86,13 +86,13 @@ router.get('/:id', authMiddleware, (req: AuthRequest, res: Response) => {
     const expired = isMeetingExpired(meeting.meeting_end || meeting.meeting_date);
     const isOrganizer = meeting.organizer_id === userId;
     
-    const materials = !expired ? run(`
+    const materials = run(`
       SELECT mm.*, u.username as uploader_name
       FROM meeting_materials mm
       LEFT JOIN users u ON mm.uploader_id = u.id
       WHERE mm.meeting_id = ?
       ORDER BY mm.sort_order ASC, mm.created_at DESC
-    `, [id]) : [];
+    `, [id]);
     
     const agendas = run(`
       SELECT ma.*, 
@@ -103,7 +103,7 @@ router.get('/:id', authMiddleware, (req: AuthRequest, res: Response) => {
     `, [id]);
     
     const attendees = run(`
-      SELECT ma.id, ma.user_id, u.username
+      SELECT ma.id, ma.user_id, u.username, u.nickname
       FROM meeting_attendees ma
       LEFT JOIN users u ON ma.user_id = u.id
       WHERE ma.meeting_id = ?
@@ -193,7 +193,7 @@ router.get('/:id/attendees', authMiddleware, (req: AuthRequest, res: Response) =
       return res.status(404).json({ error: '会议不存在' });
     }
     const attendees = run(`
-      SELECT ma.id, ma.user_id, u.username
+      SELECT ma.id, ma.user_id, u.username, u.nickname
       FROM meeting_attendees ma
       LEFT JOIN users u ON ma.user_id = u.id
       WHERE ma.meeting_id = ?
@@ -243,7 +243,7 @@ router.delete('/:id/attendees/:userId', authMiddleware, (req: AuthRequest, res: 
 
 router.get('/users/all', authMiddleware, (req: AuthRequest, res: Response) => {
   try {
-    const users = run(`SELECT id, username FROM users ORDER BY username`);
+    const users = run(`SELECT id, username, nickname FROM users ORDER BY username`);
     res.json(users);
   } catch (e: any) {
     res.status(500).json({ error: e.message });

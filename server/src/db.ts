@@ -29,11 +29,13 @@ export async function initDb(): Promise<Database> {
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
+      nickname TEXT DEFAULT '',
       password_hash TEXT NOT NULL,
       role TEXT DEFAULT 'viewer' CHECK(role IN ('admin', 'editor', 'viewer')),
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  try { db.run("ALTER TABLE users ADD COLUMN nickname TEXT DEFAULT ''") } catch {}
 
   db.run(`
     CREATE TABLE IF NOT EXISTS documents (

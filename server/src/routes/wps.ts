@@ -7,11 +7,22 @@ import { authMiddleware } from '../middleware/auth';
 
 const router = Router();
 
-const WPS_APP_NAME = 'wpsoffice.app';
-
 const tempDir = path.join(os.tmpdir(), 'wps_bridge_downloads');
 if (!fs.existsSync(tempDir)) {
   fs.mkdirSync(tempDir, { recursive: true });
+}
+
+function getOpenCommand(filePath: string): string {
+  const platform = os.platform();
+  const filePathEscaped = filePath.replace(/"/g, '\\"');
+  
+  if (platform === 'darwin') {
+    return `open -a "wpsoffice.app" "${filePathEscaped}"`;
+  } else if (platform === 'win32') {
+    return `start "" "${filePathEscaped}"`;
+  } else {
+    return `xdg-open "${filePathEscaped}"`;
+  }
 }
 
 function execAsync(cmd: string): Promise<void> {
@@ -32,10 +43,12 @@ router.get('/open', authMiddleware, async (req: any, res: Response) => {
       return res.status(400).json({ status: 'error', message: '缺少 url 或 file 参数' });
     }
 
+    let targetPath = file;
+
     if (url) {
       const parsedUrl = new URL(url);
       const ext = path.extname(parsedUrl.pathname) || '.tmp';
-      const tmpPath = path.join(tempDir, `wps_${Date.now()}${ext}`);
+      targetPath = path.join(tempDir, `wps_${Date.now()}${ext}`);
 
       const fileResponse = await fetch(url);
       if (!fileResponse.ok) {
@@ -43,20 +56,20 @@ router.get('/open', authMiddleware, async (req: any, res: Response) => {
       }
 
       const buffer = await fileResponse.arrayBuffer();
-      fs.writeFileSync(tmpPath, Buffer.from(buffer));
-
-      await execAsync(`open -a "${WPS_APP_NAME}" "${tmpPath}"`);
-      
-      return res.json({ status: 'ok', message: `已打开远程文件 ${url}` });
+      fs.writeFileSync(targetPath, Buffer.from(buffer));
     }
 
-    if (file) {
-      if (!fs.existsSync(file)) {
-        return res.status(404).json({ status: 'error', message: '文件不存在' });
-      }
-      await execAsync(`open -a "${WPS_APP_NAME}" "${file}"`);
-      return res.json({ status: 'ok', message: `已打开本地文件 ${file}` });
+    if (!targetPath || !fs.existsSync(targetPath)) {
+      return res.status(404).json({ status: 'error', message: '文件不存在' });
     }
+
+    const cmd = getOpenCommand(targetPath);
+    await execAsync(cmd);
+    
+    const platform = os.platform();
+    const platformName = platform === 'darwin' ? 'WPS (macOS)' : platform === 'win32' ? 'WPS (Windows)' : '系统默认程序';
+    
+    res.json({ status: 'ok', message: `已通过 ${platformName} 打开文件` });
   } catch (e: any) {
     res.status(500).json({ status: 'error', message: e.message });
   }

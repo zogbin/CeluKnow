@@ -73,6 +73,7 @@ export default function MeetingsPage() {
   const [showAttendeeModal, setShowAttendeeModal] = useState(false)
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null)
   const [fullscreen, setFullscreen] = useState(false)
+  const [listCollapsed, setListCollapsed] = useState(false)
   const [expandedFolders, setExpandedFolders] = useState<Set<number>>(new Set())
   const [countdown, setCountdown] = useState('')
 
@@ -617,9 +618,17 @@ const handleOpenWithWPS = async (filePath: string, x: number = 0, y: number = 0)
         )}
       </div>
 
-<div className="grid lg:grid-cols-4 gap-6">
+<div className={`grid gap-6 ${listCollapsed ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
         {selectedMeeting && (
-          <div className="lg:col-span-3 bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="lg:col-span-3 bg-white rounded-2xl border border-gray-100 shadow-sm p-6 relative">
+            <button 
+              onClick={() => setListCollapsed(!listCollapsed)}
+              className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-6 h-10 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50 flex items-center justify-center"
+            >
+              <svg className={`w-4 h-4 text-gray-500 transition-transform ${listCollapsed ? 'rotate-0' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
             {editMode ? (
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold text-gray-900">编辑会议</h3>
@@ -936,9 +945,11 @@ const handleOpenWithWPS = async (filePath: string, x: number = 0, y: number = 0)
           </div>
         )}
 
-        <div className="lg:col-span-1 space-y-3">
-          <h3 className="font-semibold text-gray-900 mb-3">会议列表</h3>
-          {meetings.map(meeting => (
+        <div className={`lg:col-span-1 space-y-3 transition-all duration-300 ${listCollapsed ? 'w-0 overflow-hidden' : ''}`}>
+          {!listCollapsed && (
+            <>
+              <h3 className="font-semibold text-gray-900 mb-3">会议列表</h3>
+              {meetings.map(meeting => (
             <div
               key={meeting.id}
               onClick={() => handleSelect(meeting)}
@@ -959,8 +970,10 @@ const handleOpenWithWPS = async (filePath: string, x: number = 0, y: number = 0)
               </p>
             </div>
           ))}
-          {meetings.length === 0 && (
-            <p className="text-sm text-gray-400 text-center py-4">暂无会议</p>
+              {meetings.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-4">暂无会议</p>
+              )}
+            </>
           )}
         </div>
       </div>

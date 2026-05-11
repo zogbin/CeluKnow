@@ -6,8 +6,20 @@ import bcrypt from 'bcryptjs';
 const router = Router();
 
 router.get('/me', authMiddleware, (req: AuthRequest, res: Response) => {
-  const users = run('SELECT id, username, role, created_at FROM users WHERE id = ?', [req.user!.id]);
+  const users = run('SELECT id, username, nickname, role, created_at FROM users WHERE id = ?', [req.user!.id]);
   res.json(users[0]);
+});
+
+router.put('/me/nickname', authMiddleware, (req: AuthRequest, res: Response) => {
+  const { nickname } = req.body;
+  if (nickname) {
+    const existing = run('SELECT id FROM users WHERE nickname = ? AND id != ?', [nickname, req.user!.id]);
+    if (existing.length > 0) {
+      return res.status(400).json({ error: '昵称已存在' });
+    }
+  }
+  runUpdate('UPDATE users SET nickname = ? WHERE id = ?', [nickname || '', req.user!.id]);
+  res.json({ success: true, nickname });
 });
 
 router.put('/me/password', authMiddleware, (req: AuthRequest, res: Response) => {

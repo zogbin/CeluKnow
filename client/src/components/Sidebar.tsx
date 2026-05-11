@@ -41,6 +41,7 @@ export default function Sidebar({ onClose }: SidebarProps) {
   }, [isMobile])
   const navigate = useNavigate()
   const user = JSON.parse(localStorage.getItem('user') || '{}')
+  const displayName = user.nickname || user.username
 
   const loadData = () => {
     Promise.all([
@@ -129,15 +130,15 @@ export default function Sidebar({ onClose }: SidebarProps) {
           {!collapsed && (
             <Link to="/profile" className="block">
               <h1 className="text-base font-semibold text-gray-900">CeluKnow</h1>
-              <p className="text-xs text-gray-500 hover:text-blue-600 transition-colors">{user.username}</p>
+              <p className="text-xs text-gray-500 hover:text-blue-600 transition-colors">{displayName}</p>
             </Link>
           )}
           <button 
             onClick={() => setCollapsed(!collapsed)}
-            className={`ml-auto p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors ${collapsed ? 'rotate-180' : ''}`}
+            className="ml-auto w-6 h-6 bg-white border border-gray-200 rounded shadow-sm hover:bg-gray-50 flex items-center justify-center"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+            <svg className={`w-4 h-4 text-gray-500 transition-transform ${collapsed ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
         </div>

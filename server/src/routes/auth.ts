@@ -12,6 +12,10 @@ router.post('/register', async (req: Request, res: Response) => {
     if (!username || !password) {
       return res.status(400).json({ error: '用户名和密码必填' });
     }
+    const existingUser = run('SELECT id FROM users WHERE username = ?', [username]);
+    if (existingUser.length > 0) {
+      return res.status(400).json({ error: '用户名已存在' });
+    }
     const password_hash = await bcrypt.hash(password, 10);
     const id = runInsert(
       'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
@@ -40,11 +44,11 @@ router.post('/login', async (req: Request, res: Response) => {
       return res.status(401).json({ error: '用户名或密码错误' });
     }
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role },
+      { id: user.id, username: user.username, nickname: user.nickname, role: user.role },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
-    res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
+    res.json({ token, user: { id: user.id, username: user.username, nickname: user.nickname, role: user.role } });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -57,7 +61,7 @@ router.get('/me', (req: Request, res: Response) => {
   }
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
-    res.json({ id: decoded.id, username: decoded.username, role: decoded.role });
+    res.json({ id: decoded.id, username: decoded.username, nickname: decoded.nickname, role: decoded.role });
   } catch {
     res.status(401).json({ error: 'token 无效' });
   }

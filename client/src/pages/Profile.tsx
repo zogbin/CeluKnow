@@ -33,8 +33,13 @@ export default function Profile() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [changingPassword, setChangingPassword] = useState(false)
   const [batchDeleting, setBatchDeleting] = useState(false)
+  const [showNicknameModal, setShowNicknameModal] = useState(false)
+  const [nickname, setNickname] = useState('')
+  const [savingNickname, setSavingNickname] = useState(false)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const navigate = useNavigate()
   const user = JSON.parse(localStorage.getItem('user') || '{}')
+  const displayName = user.nickname || user.username
 
   useEffect(() => {
     api.get('/users/me/likes').then(res => setLikes(res.data)).catch(() => {})
@@ -49,22 +54,26 @@ export default function Profile() {
 
   const handleChangePassword = async () => {
     if (newPassword !== confirmPassword) {
-      alert('两次输入的密码不一致')
+      setToast({ message: '两次输入的密码不一致', type: 'error' })
+      setTimeout(() => setToast(null), 3000)
       return
     }
     if (newPassword.length < 6) {
-      alert('密码长度至少6位')
+      setToast({ message: '密码长度至少6位', type: 'error' })
+      setTimeout(() => setToast(null), 3000)
       return
     }
     setChangingPassword(true)
     try {
       await api.put('/users/me/password', { password: newPassword })
-      alert('密码修改成功')
+      setToast({ message: '密码修改成功', type: 'success' })
+      setTimeout(() => setToast(null), 3000)
       setShowPasswordModal(false)
       setNewPassword('')
       setConfirmPassword('')
     } catch (err: any) {
-      alert(err.response?.data?.error || '修改失败')
+      setToast({ message: err.response?.data?.error || '修改失败', type: 'error' })
+      setTimeout(() => setToast(null), 3000)
     }
     setChangingPassword(false)
   }
@@ -145,19 +154,27 @@ export default function Profile() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center text-white text-2xl font-semibold">
-              {user.username?.charAt(0).toUpperCase()}
+              {displayName.charAt(0).toUpperCase()}
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">{user.username}</h2>
+              <h2 className="text-xl font-semibold text-gray-900">{displayName}</h2>
               <p className="text-sm text-gray-500">{roleLabel[user.role as keyof typeof roleLabel] || '用户'}</p>
             </div>
           </div>
-          <button
-            onClick={() => setShowPasswordModal(true)}
-            className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
-          >
-            修改密码
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setNickname(user.nickname || ''); setShowNicknameModal(true); }}
+              className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+            >
+              修改昵称
+            </button>
+            <button
+              onClick={() => setShowPasswordModal(true)}
+              className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+            >
+              修改密码
+            </button>
+          </div>
         </div>
       </div>
 
@@ -345,6 +362,61 @@ export default function Profile() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {showNicknameModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">修改昵称</h3>
+            <input
+              type="text"
+              value={nickname}
+              onChange={e => setNickname(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              placeholder="输入昵称"
+            />
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowNicknameModal(false)}
+                className="flex-1 px-4 py-2 text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={async () => {
+                  if (savingNickname) return
+                  setSavingNickname(true)
+                  try {
+                    const res = await api.put('/users/me/nickname', { nickname })
+                    const newUser = { ...user, nickname: res.data.nickname }
+                    localStorage.setItem('user', JSON.stringify(newUser))
+                    setShowNicknameModal(false)
+                    setToast({ message: '昵称保存成功', type: 'success' })
+                    setTimeout(() => setToast(null), 3000)
+                    window.location.reload()
+                  } catch (err: any) {
+                    setToast({ message: err.response?.data?.error || '保存失败', type: 'error' })
+                    setTimeout(() => setToast(null), 3000)
+                  }
+                  setSavingNickname(false)
+                }}
+                disabled={savingNickname}
+                className="flex-1 px-4 py-2 text-white bg-blue-500 rounded-xl hover:bg-blue-600 transition-colors disabled:opacity-50"
+              >
+                {savingNickname ? '保存中...' : '保存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div 
+          className={`fixed z-[100] px-4 py-2 rounded-lg shadow-lg text-sm ${toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'} text-white`}
+          style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}
+        >
+          {toast.message}
         </div>
       )}
     </div>
