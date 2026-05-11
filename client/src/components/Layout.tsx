@@ -3,9 +3,10 @@ import Sidebar from './Sidebar'
 
 interface LayoutProps {
   children: ReactNode
+  defaultSidebarCollapsed?: boolean
 }
 
-export default function Layout({ children }: LayoutProps) {
+export default function Layout({ children, defaultSidebarCollapsed = false }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
@@ -23,7 +24,7 @@ export default function Layout({ children }: LayoutProps) {
         fixed lg:relative z-50 h-full transition-transform duration-300
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
-        <Sidebar onClose={() => setSidebarOpen(false)} />
+        <Sidebar onClose={() => setSidebarOpen(false)} defaultCollapsed={defaultSidebarCollapsed} />
       </div>
       
       {/* Main content */}

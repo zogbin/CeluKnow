@@ -23,14 +23,15 @@ declare global {
 
 interface SidebarProps {
   onClose?: () => void
+  defaultCollapsed?: boolean
 }
 
-export default function Sidebar({ onClose }: SidebarProps) {
+export default function Sidebar({ onClose, defaultCollapsed = false }: SidebarProps) {
   const [categories, setCategories] = useState<Category[]>([])
   const [documents, setDocuments] = useState<Doc[]>([])
   const [searchInput, setSearchInput] = useState('')
   const [expandedCats, setExpandedCats] = useState<Set<number>>(new Set())
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(defaultCollapsed)
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
   const location = useLocation()
   
@@ -39,6 +40,10 @@ export default function Sidebar({ onClose }: SidebarProps) {
       setCollapsed(true)
     }
   }, [isMobile])
+
+  useEffect(() => {
+    setCollapsed(defaultCollapsed)
+  }, [defaultCollapsed])
   const navigate = useNavigate()
   const user = JSON.parse(localStorage.getItem('user') || '{}')
   const displayName = user.nickname || user.username

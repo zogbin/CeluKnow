@@ -31,6 +31,7 @@ interface Attendee {
   id: number
   user_id: number
   username: string
+  nickname?: string
 }
 
 interface User {
@@ -718,7 +719,7 @@ const handleOpenWithWPS = async (filePath: string, x: number = 0, y: number = 0)
                           <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                           </svg>
-                          {a.username}
+                          {a.nickname || a.username}
                           <button onClick={() => handleRemoveAttendee(a.user_id)} className="ml-1 text-gray-400 hover:text-red-500">
                             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

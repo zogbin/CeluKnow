@@ -24,8 +24,12 @@ CeluKnow 是一个轻量化的本地知识分享系统，支持 Markdown 文档�
 - **评论系统** - 支持发表评论、回复评论、添加表情
 - **全文搜索** - 快速检索文档标题和内容
 - **批量操作** - 批量删除文档、点赞、评论
-- **个人中心** - 统一管理我的文档、点赞、评论，支持修改密码
+- **个人中心** - 统一管理我的文档、点赞、评论，支持修改密码和昵称
 - **CLI工具集** - 支持通过AI工具调用的login, import, export, search, list, get, delete
+- **会议管理** - 多议程支持、文件夹上传
+- **文件共享** - 多人同时查看和下载会议文件
+- **WPS集成** - 支持直接在WPS中打开编辑会议资料
+- **时间提醒** - 清晰显示会议状态（进行中/已完成）
 
 ## 环境要求
 
@@ -204,6 +208,26 @@ celuknow delete 1 --force         # 删除文档
 |------|------|------|
 | POST | /api/import-export/import | 批量导入 |
 | GET | /api/import-export/export | 导出为 ZIP |
+
+### 会议
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/meetings | 获取会议列表 |
+| POST | /api/meetings | 创建会议 |
+| PUT | /api/meetings/:id | 更新会议 |
+| DELETE | /api/meetings/:id | 删除会议 |
+| POST | /api/meetings/:id/materials | 上传会议资料 |
+| GET | /api/meetings/:id/materials | 获取会议资料列表 |
+| DELETE | /api/meetings/:id/materials/:materialId | 删除会议资料 |
+| POST | /api/wps/open | 调用WPS打开文件 |
+
+### 用户
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/users/me | 获取当前用户信息 |
+| PUT | /api/users/nickname | 修改用户昵称 |
 
 ## 许可证
 
