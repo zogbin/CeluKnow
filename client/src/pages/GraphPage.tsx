@@ -205,7 +205,11 @@ export default function GraphPage() {
         ctx.beginPath()
         ctx.moveTo(source.x, source.y)
         ctx.lineTo(target.x, target.y)
-        if (link.type === 'tag') {
+        if (link.type === 'category') {
+          ctx.strokeStyle = '#4ADE80'
+          ctx.lineWidth = 1.5
+          ctx.setLineDash([4, 2])
+        } else if (link.type === 'tag') {
           ctx.strokeStyle = '#F59E0B'
           ctx.lineWidth = 1.5
           ctx.setLineDash([4, 2])
@@ -373,6 +377,9 @@ export default function GraphPage() {
                 </span>
                 <span className="flex items-center gap-1">
                   <span className="w-4 h-0.5 bg-amber-400" style={{ borderStyle: 'dashed' }}></span> 相同标签
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-4 h-0.5 bg-green-400" style={{ borderStyle: 'dashed' }}></span> 相同分类
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-1">点击节点跳转到文档</p>
