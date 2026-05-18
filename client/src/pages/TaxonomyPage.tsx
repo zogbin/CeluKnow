@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import api from '../api/auth'
 
 interface Category {
@@ -36,6 +36,16 @@ export default function TaxonomyPage() {
   
   const [saving, setSaving] = useState(false)
   const navigate = useNavigate()
+
+  const [expandedCategoryId, setExpandedCategoryId] = useState<number | null>(null)
+  const [expandedTagId, setExpandedTagId] = useState<number | null>(null)
+  const [categoryDocs, setCategoryDocs] = useState<Record<number, any[]>>({})
+  const [tagDocs, setTagDocs] = useState<Record<number, any[]>>({})
+  const [allDocuments, setAllDocuments] = useState<any[]>([])
+  const [showDocModal, setShowDocModal] = useState(false)
+  const [modalType, setModalType] = useState<'category' | 'tag' | null>(null)
+  const [modalEntityId, setModalEntityId] = useState<number | null>(null)
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     loadData()
@@ -118,6 +128,79 @@ export default function TaxonomyPage() {
     }
   }
 
+  const loadCategoryOrTagDocs = async (type: 'category' | 'tag', id: number) => {
+    try {
+      const path = type === 'category' ? `/categories/${id}/documents` : `/tags/${id}/documents`
+      const res = await api.get(path)
+      if (type === 'category') {
+        setCategoryDocs(prev => ({ ...prev, [id]: res.data }))
+      } else {
+        setTagDocs(prev => ({ ...prev, [id]: res.data }))
+      }
+    } catch {}
+  }
+
+  const openDocModal = async (type: 'category' | 'tag', id: number) => {
+    setModalType(type)
+    setModalEntityId(id)
+    try {
+      const res = await api.get('/documents')
+      const docs = Array.isArray(res.data) ? res.data : (res.data.docs || [])
+      setAllDocuments(docs)
+      const assigned = type === 'category' ? (categoryDocs[id] || []) : (tagDocs[id] || [])
+      const assignedIds = new Set(assigned.map((d: any) => d.id))
+      setSelectedDocIds(assignedIds)
+      setShowDocModal(true)
+    } catch {}
+  }
+
+  const handleConfirmAssign = async () => {
+    if (!modalType || !modalEntityId) return
+    const assigned = modalType === 'category' ? (categoryDocs[modalEntityId] || []) : (tagDocs[modalEntityId] || [])
+    const assignedIds = new Set(assigned.map((d: any) => d.id))
+
+    for (const doc of assigned) {
+      if (!selectedDocIds.has(doc.id)) {
+        const removePath = modalType === 'category'
+          ? `/categories/${doc.id}/categories/${modalEntityId}`
+          : `/tags/${doc.id}/tags/${modalEntityId}`
+        await api.delete(removePath)
+      }
+    }
+
+    for (const docId of selectedDocIds) {
+      if (!assignedIds.has(docId)) {
+        const addPath = modalType === 'category'
+          ? `/categories/${docId}/categories`
+          : `/tags/${docId}/tags`
+        await api.post(addPath, { [modalType === 'category' ? 'category_ids' : 'tag_ids']: [modalEntityId] })
+      }
+    }
+
+    setShowDocModal(false)
+    loadCategoryOrTagDocs(modalType, modalEntityId)
+  }
+
+  const handleRemoveCategoryDoc = async (catId: number, docId: number) => {
+    try {
+      await api.delete(`/categories/${docId}/categories/${catId}`)
+      setCategoryDocs(prev => ({
+        ...prev,
+        [catId]: (prev[catId] || []).filter((d: any) => d.id !== docId)
+      }))
+    } catch {}
+  }
+
+  const handleRemoveTagDoc = async (tagId: number, docId: number) => {
+    try {
+      await api.delete(`/tags/${docId}/tags/${tagId}`)
+      setTagDocs(prev => ({
+        ...prev,
+        [tagId]: (prev[tagId] || []).filter((d: any) => d.id !== docId)
+      }))
+    } catch {}
+  }
+
   const iconSvg = (iconName: string) => {
     const icons: Record<string, JSX.Element> = {
       folder: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />,
@@ -181,10 +264,18 @@ export default function TaxonomyPage() {
           
           <div className="grid grid-cols-4 gap-4">
             {categories.map(cat => (
-              <div 
-                key={cat.id} 
-                className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 hover:shadow-md transition-shadow group"
-              >
+                <div 
+                  key={cat.id} 
+                  className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 hover:shadow-md transition-shadow group cursor-pointer"
+                  onClick={() => {
+                    if (expandedCategoryId === cat.id) {
+                      setExpandedCategoryId(null)
+                    } else {
+                      setExpandedCategoryId(cat.id)
+                      loadCategoryOrTagDocs('category', cat.id)
+                    }
+                  }}
+                >
                 <div className="flex items-center gap-3 mb-3">
                   <div 
                     className="w-10 h-10 rounded-xl flex items-center justify-center"
@@ -200,13 +291,13 @@ export default function TaxonomyPage() {
                 </div>
                 <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button 
-                    onClick={() => { setEditingCat(cat); setCatName(cat.name); setCatColor(cat.color || defaultColors[0]); setCatIcon(cat.icon || defaultIcons[0]); setShowCatModal(true); }}
+                    onClick={(e) => { e.stopPropagation(); setEditingCat(cat); setCatName(cat.name); setCatColor(cat.color || defaultColors[0]); setCatIcon(cat.icon || defaultIcons[0]); setShowCatModal(true); }}
                     className="flex-1 text-xs text-gray-500 hover:text-gray-700 py-1.5 bg-gray-50 rounded-lg"
                   >
                     编辑
                   </button>
                   <button 
-                    onClick={() => handleDeleteCategory(cat.id)}
+                    onClick={(e) => { e.stopPropagation(); handleDeleteCategory(cat.id); }}
                     className="flex-1 text-xs text-red-500 hover:text-red-600 py-1.5 bg-red-50 rounded-lg"
                   >
                     删除
@@ -225,6 +316,24 @@ export default function TaxonomyPage() {
               </div>
             )}
           </div>
+
+          {expandedCategoryId && (
+            <div className="mt-3 pl-4 border-l-2 border-gray-200 space-y-1">
+              {(categoryDocs[expandedCategoryId] || []).map(doc => (
+                <div key={doc.id} className="flex items-center justify-between py-1 px-2 rounded hover:bg-gray-50">
+                  <Link to={`/doc/${doc.id}`} className="text-sm text-blue-600 hover:text-blue-800 truncate">{doc.title}</Link>
+                  <button onClick={() => handleRemoveCategoryDoc(expandedCategoryId, doc.id)} className="text-gray-400 hover:text-red-500 shrink-0 ml-2">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+              <button onClick={() => openDocModal('category', expandedCategoryId)} className="text-xs text-blue-500 hover:text-blue-700 mt-1">
+                + 分配文档
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -252,12 +361,20 @@ export default function TaxonomyPage() {
             {tags.map(tag => (
               <div 
                 key={tag.id} 
-                className="group flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 font-medium rounded-full text-sm border border-blue-100 hover:shadow-md transition-all"
+                className="group flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 font-medium rounded-full text-sm border border-blue-100 hover:shadow-md transition-all cursor-pointer"
+                onClick={() => {
+                  if (expandedTagId === tag.id) {
+                    setExpandedTagId(null)
+                  } else {
+                    setExpandedTagId(tag.id)
+                    loadCategoryOrTagDocs('tag', tag.id)
+                  }
+                }}
               >
                 <span>{tag.name}</span>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button 
-                    onClick={() => { setEditingTag(tag); setTagName(tag.name); setShowTagModal(true); }}
+                    onClick={(e) => { e.stopPropagation(); setEditingTag(tag); setTagName(tag.name); setShowTagModal(true); }}
                     className="p-1 hover:bg-blue-100 rounded"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -265,7 +382,7 @@ export default function TaxonomyPage() {
                     </svg>
                   </button>
                   <button 
-                    onClick={() => handleDeleteTag(tag.id)}
+                    onClick={(e) => { e.stopPropagation(); handleDeleteTag(tag.id); }}
                     className="p-1 hover:bg-red-100 rounded text-red-500"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -286,6 +403,24 @@ export default function TaxonomyPage() {
               </div>
             )}
           </div>
+
+          {expandedTagId && (
+            <div className="mt-3 pl-4 border-l-2 border-gray-200 space-y-1">
+              {(tagDocs[expandedTagId] || []).map(doc => (
+                <div key={doc.id} className="flex items-center justify-between py-1 px-2 rounded hover:bg-gray-50">
+                  <Link to={`/doc/${doc.id}`} className="text-sm text-blue-600 hover:text-blue-800 truncate">{doc.title}</Link>
+                  <button onClick={() => handleRemoveTagDoc(expandedTagId, doc.id)} className="text-gray-400 hover:text-red-500 shrink-0 ml-2">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+              <button onClick={() => openDocModal('tag', expandedTagId)} className="text-xs text-blue-500 hover:text-blue-700 mt-1">
+                + 分配文档
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -385,6 +520,39 @@ export default function TaxonomyPage() {
               >
                 保存
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDocModal && (
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
+            <div className="p-6 pb-0">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">分配文档</h3>
+            </div>
+            <div className="flex-1 overflow-auto p-6 pt-2 space-y-2">
+              {allDocuments.map(doc => (
+                <label key={doc.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedDocIds.has(doc.id)}
+                    onChange={(e) => {
+                      const newSet = new Set(selectedDocIds)
+                      if (e.target.checked) newSet.add(doc.id)
+                      else newSet.delete(doc.id)
+                      setSelectedDocIds(newSet)
+                    }}
+                    className="rounded border-gray-300 text-blue-600"
+                  />
+                  <span className="text-sm text-gray-900">{doc.title}</span>
+                  <span className="text-xs text-gray-500 ml-auto">{doc.author_name}</span>
+                </label>
+              ))}
+            </div>
+            <div className="p-6 pt-4 border-t border-gray-100 flex gap-3">
+              <button onClick={() => setShowDocModal(false)} className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200">取消</button>
+              <button onClick={handleConfirmAssign} className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600">确认分配</button>
             </div>
           </div>
         </div>
