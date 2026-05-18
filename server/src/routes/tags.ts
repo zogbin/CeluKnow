@@ -72,10 +72,9 @@ router.delete('/:id', authMiddleware, (req: AuthRequest, res: Response) => {
 router.post('/:docId/tags', authMiddleware, (req: AuthRequest, res: Response) => {
   const { tag_ids } = req.body;
   const docId = req.params.docId;
-  const docs = run('SELECT * FROM documents WHERE id = ?', [docId]);
-  const doc = docs[0];
-  if (!doc || doc.author_id !== req.user!.id) {
-    return res.status(403).json({ error: '权限不足' });
+  const docs = run('SELECT * FROM documents WHERE id = ? AND (visibility = "public" OR author_id = ?)', [docId, req.user!.id]);
+  if (docs.length === 0) {
+    return res.status(404).json({ error: '文档不存在' });
   }
   for (const tagId of tag_ids) {
     try {
@@ -87,10 +86,9 @@ router.post('/:docId/tags', authMiddleware, (req: AuthRequest, res: Response) =>
 
 router.delete('/:docId/tags/:tagId', authMiddleware, (req: AuthRequest, res: Response) => {
   const docId = req.params.docId;
-  const docs = run('SELECT * FROM documents WHERE id = ?', [docId]);
-  const doc = docs[0];
-  if (!doc || doc.author_id !== req.user!.id) {
-    return res.status(403).json({ error: '权限不足' });
+  const docs = run('SELECT * FROM documents WHERE id = ? AND (visibility = "public" OR author_id = ?)', [docId, req.user!.id]);
+  if (docs.length === 0) {
+    return res.status(404).json({ error: '文档不存在' });
   }
   runUpdate(
     'DELETE FROM document_tags WHERE document_id = ? AND tag_id = ?',

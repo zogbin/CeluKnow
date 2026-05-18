@@ -71,10 +71,9 @@ router.get('/:id/documents', authMiddleware, (req: AuthRequest, res: Response) =
 router.post('/:docId/categories', authMiddleware, (req: AuthRequest, res: Response) => {
   const { category_ids } = req.body;
   const docId = req.params.docId;
-  const docs = run('SELECT * FROM documents WHERE id = ?', [docId]);
-  const doc = docs[0];
-  if (!doc || doc.author_id !== req.user!.id) {
-    return res.status(403).json({ error: '权限不足' });
+  const docs = run('SELECT * FROM documents WHERE id = ? AND (visibility = "public" OR author_id = ?)', [docId, req.user!.id]);
+  if (docs.length === 0) {
+    return res.status(404).json({ error: '文档不存在' });
   }
   for (const catId of category_ids) {
     try {
@@ -87,10 +86,9 @@ router.post('/:docId/categories', authMiddleware, (req: AuthRequest, res: Respon
 router.delete('/:docId/categories/:categoryId', authMiddleware, (req: AuthRequest, res: Response) => {
   const docId = req.params.docId;
   const categoryId = req.params.categoryId;
-  const docs = run('SELECT * FROM documents WHERE id = ?', [docId]);
-  const doc = docs[0];
-  if (!doc || doc.author_id !== req.user!.id) {
-    return res.status(403).json({ error: '权限不足' });
+  const docs = run('SELECT * FROM documents WHERE id = ? AND (visibility = "public" OR author_id = ?)', [docId, req.user!.id]);
+  if (docs.length === 0) {
+    return res.status(404).json({ error: '文档不存在' });
   }
   runUpdate('DELETE FROM document_categories WHERE document_id = ? AND category_id = ?', [docId, categoryId]);
   res.json({ success: true });

@@ -156,27 +156,28 @@ export default function TaxonomyPage() {
 
   const handleConfirmAssign = async () => {
     if (!modalType || !modalEntityId) return
-    const assigned = modalType === 'category' ? (categoryDocs[modalEntityId] || []) : (tagDocs[modalEntityId] || [])
-    const assignedIds = new Set(assigned.map((d: any) => d.id))
+    try {
+      const assigned = modalType === 'category' ? (categoryDocs[modalEntityId] || []) : (tagDocs[modalEntityId] || [])
+      const assignedIds = new Set(assigned.map((d: any) => d.id))
 
-    for (const doc of assigned) {
-      if (!selectedDocIds.has(doc.id)) {
-        const removePath = modalType === 'category'
-          ? `/categories/${doc.id}/categories/${modalEntityId}`
-          : `/tags/${doc.id}/tags/${modalEntityId}`
-        await api.delete(removePath)
+      for (const doc of assigned) {
+        if (!selectedDocIds.has(doc.id)) {
+          const removePath = modalType === 'category'
+            ? `/categories/${doc.id}/categories/${modalEntityId}`
+            : `/tags/${doc.id}/tags/${modalEntityId}`
+          await api.delete(removePath)
+        }
       }
-    }
 
-    for (const docId of selectedDocIds) {
-      if (!assignedIds.has(docId)) {
-        const addPath = modalType === 'category'
-          ? `/categories/${docId}/categories`
-          : `/tags/${docId}/tags`
-        await api.post(addPath, { [modalType === 'category' ? 'category_ids' : 'tag_ids']: [modalEntityId] })
+      for (const docId of selectedDocIds) {
+        if (!assignedIds.has(docId)) {
+          const addPath = modalType === 'category'
+            ? `/categories/${docId}/categories`
+            : `/tags/${docId}/tags`
+          await api.post(addPath, { [modalType === 'category' ? 'category_ids' : 'tag_ids']: [modalEntityId] })
+        }
       }
-    }
-
+    } catch {}
     setShowDocModal(false)
     loadCategoryOrTagDocs(modalType, modalEntityId)
   }
