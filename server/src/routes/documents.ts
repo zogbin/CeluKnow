@@ -64,28 +64,36 @@ router.get('/search', authMiddleware, (req: AuthRequest, res: Response) => {
 router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
   const userId = req.user!.id;
   const sort = req.query.sort || 'updated_at';
-  const order = sort === 'popular' ? 'DESC' : 'DESC';
+  const page = parseInt(req.query.page as string) || 1;
+  const pageSize = parseInt(req.query.pageSize as string) || 5;
+  const offset = (page - 1) * pageSize;
   
   const orderBy = sort === 'popular' 
     ? 'ORDER BY view_count DESC, comment_count DESC, d.updated_at DESC'
     : 'ORDER BY d.updated_at DESC';
   
+  const total = run(`
+    SELECT COUNT(*) as count FROM documents
+    WHERE visibility = 'public' OR author_id = ?
+  `, [userId])[0].count;
+  
   const docs = run(`
     SELECT d.*, u.username as author_name,
-    GROUP_CONCAT(t.name) as tags,
+    GROUP_CONCAT(DISTINCT t.name) as tags,
     GROUP_CONCAT(DISTINCT c.id) as category_ids,
     COALESCE((SELECT COUNT(*) FROM document_views WHERE document_id = d.id), 0) as view_count,
     COALESCE((SELECT COUNT(*) FROM comments WHERE document_id = d.id), 0) as comment_count
     FROM documents d
     LEFT JOIN users u ON d.author_id = u.id
     LEFT JOIN document_tags dt ON d.id = dt.document_id
-    LEFT JOIN tags t ON dt.tag_id = t.id
+    LEFT JOIN tags t ON dt.tag_id = t.id AND t.user_id = ?
     LEFT JOIN document_categories dc ON d.id = dc.document_id
-    LEFT JOIN categories c ON dc.category_id = c.id
+    LEFT JOIN categories c ON dc.category_id = c.id AND c.user_id = ?
     WHERE d.visibility = 'public' OR d.author_id = ?
     GROUP BY d.id
     ${orderBy}
-  `, [userId]);
+    LIMIT ? OFFSET ?
+  `, [userId, userId, userId, pageSize, offset]);
   
   const result = docs.map((d: any) => {
     const category_ids = d.category_ids ? d.category_ids.split(',').map((id: string) => parseInt(id)).filter((id: number) => !isNaN(id)) : []
@@ -96,7 +104,7 @@ router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
       comment_count: d.comment_count || 0
     }
   })
-  res.json(result);
+  res.json({ docs: result, total, page, pageSize });
 });
 
 router.get('/graph', authMiddleware, (req: AuthRequest, res: Response) => {
