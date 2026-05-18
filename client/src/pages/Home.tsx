@@ -22,15 +22,21 @@ export default function Home() {
   const [newDocTitle, setNewDocTitle] = useState('')
   const [newDocVisibility, setNewDocVisibility] = useState('private')
   const [creating, setCreating] = useState(false)
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const pageSize = 5
   const navigate = useNavigate()
 
   useEffect(() => {
     if (search.trim()) {
       api.get(`/documents/search?q=${encodeURIComponent(search)}`).then(res => setDocs(res.data)).catch(() => {})
     } else {
-      api.get(`/documents?sort=${sort}`).then(res => setDocs(res.data)).catch(() => {})
+      api.get(`/documents?sort=${sort}&page=${page}&pageSize=${pageSize}`).then(res => {
+        setDocs(res.data.docs || [])
+        setTotal(res.data.total || 0)
+      }).catch(() => {})
     }
-  }, [search, sort])
+  }, [search, sort, page])
 
   const handleCreate = async () => {
     if (!newDocTitle.trim()) return
@@ -96,7 +102,7 @@ export default function Home() {
       await api.post('/import-export/import', { files: fileData })
       alert(`导入成功，共 ${fileData.length} 篇文档`)
       window.refreshSidebar?.()
-      api.get(`/documents?sort=${sort}`).then(res => setDocs(res.data))
+      setPage(1)
     } catch (err: any) {
       alert(err.response?.data?.error || '导入失败')
     }
@@ -147,7 +153,7 @@ export default function Home() {
               会议
             </button>
           </div>
-          <p className="text-gray-500 mt-1">共 {docs.length} 篇文档</p>
+          <p className="text-gray-500 mt-1">共 {total} 篇文档</p>
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -288,6 +294,42 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {!search && total > pageSize && (
+        <div className="flex items-center justify-center gap-1 mt-6">
+          <button
+            onClick={() => setPage(Math.max(1, page - 1))}
+            disabled={page === 1}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          {Array.from({ length: Math.ceil(total / pageSize) }, (_, i) => i + 1).map(p => (
+            <button
+              key={p}
+              onClick={() => setPage(p)}
+              className={`px-3 py-1.5 text-sm rounded-lg transition-all ${
+                p === page
+                  ? 'bg-blue-500 text-white'
+                  : 'border border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              {p}
+            </button>
+          ))}
+          <button
+            onClick={() => setPage(Math.min(Math.ceil(total / pageSize), page + 1))}
+            disabled={page >= Math.ceil(total / pageSize)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {showModal && (
         <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
