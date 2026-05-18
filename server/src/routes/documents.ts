@@ -64,18 +64,21 @@ router.get('/search', authMiddleware, (req: AuthRequest, res: Response) => {
 router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
   const userId = req.user!.id;
   const sort = req.query.sort || 'updated_at';
-  const page = Math.max(1, parseInt(req.query.page as string) || 1);
-  const pageSize = Math.max(1, Math.min(100, parseInt(req.query.pageSize as string) || 5));
-  const offset = (page - 1) * pageSize;
+  const pageParam = req.query.page;
+  const pageSizeParam = req.query.pageSize;
+  const usePagination = pageParam !== undefined || pageSizeParam !== undefined;
+  const page = usePagination ? Math.max(1, parseInt(pageParam as string) || 1) : 1;
+  const pageSize = usePagination ? Math.max(1, Math.min(100, parseInt(pageSizeParam as string) || 5)) : null;
+  const offset = pageSize ? (page - 1) * pageSize : 0;
   
   const orderBy = sort === 'popular' 
     ? 'ORDER BY view_count DESC, comment_count DESC, d.updated_at DESC'
     : 'ORDER BY d.updated_at DESC';
   
-  const total = run(`
+  const total = usePagination ? run(`
     SELECT COUNT(*) as count FROM documents
     WHERE visibility = 'public' OR author_id = ?
-  `, [userId])[0].count;
+  `, [userId])[0].count : null;
   
   const docs = run(`
     SELECT d.*, u.username as author_name,
@@ -92,8 +95,8 @@ router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
     WHERE d.visibility = 'public' OR d.author_id = ?
     GROUP BY d.id
     ${orderBy}
-    LIMIT ? OFFSET ?
-  `, [userId, userId, userId, pageSize, offset]);
+    ${pageSize ? 'LIMIT ? OFFSET ?' : ''}
+  `, pageSize ? [userId, userId, userId, pageSize, offset] : [userId, userId, userId]);
   
   const result = docs.map((d: any) => {
     const category_ids = d.category_ids ? d.category_ids.split(',').map((id: string) => parseInt(id)).filter((id: number) => !isNaN(id)) : []
@@ -104,7 +107,11 @@ router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
       comment_count: d.comment_count || 0
     }
   })
-  res.json({ docs: result, total, page, pageSize });
+  if (usePagination) {
+    res.json({ docs: result, total, page, pageSize });
+  } else {
+    res.json(result);
+  }
 });
 
 router.get('/graph', authMiddleware, (req: AuthRequest, res: Response) => {

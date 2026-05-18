@@ -54,7 +54,8 @@ export default function Sidebar({ onClose, defaultCollapsed = false }: SidebarPr
       api.get('/documents')
     ]).then(([catRes, docRes]) => {
       const cats = catRes.data
-      const docs = docRes.data.map((d: any) => {
+      const docData = Array.isArray(docRes.data) ? docRes.data : (docRes.data.docs || [])
+      const docs = docData.map((d: any) => {
         // 使用返回的 category_ids
         const catIds = d.category_ids || []
         return { 
