@@ -42,12 +42,12 @@ router.get('/search', authMiddleware, (req: AuthRequest, res: Response) => {
     FROM documents d
     LEFT JOIN users u ON d.author_id = u.id
     LEFT JOIN document_tags dt ON d.id = dt.document_id
-    LEFT JOIN tags t ON dt.tag_id = t.id
+    LEFT JOIN tags t ON dt.tag_id = t.id AND t.user_id = ?
     LEFT JOIN document_categories dc ON d.id = dc.document_id
-    LEFT JOIN categories c ON dc.category_id = c.id
+    LEFT JOIN categories c ON dc.category_id = c.id AND c.user_id = ?
     WHERE (d.visibility = 'public' OR d.author_id = ?)
   `;
-  const params: any[] = [userId];
+  const params: any[] = [userId, userId, userId];
   if (q) {
     sql += ' AND (d.title LIKE ? OR d.content LIKE ?)';
     params.push(`%${q}%`, `%${q}%`);
@@ -64,8 +64,8 @@ router.get('/search', authMiddleware, (req: AuthRequest, res: Response) => {
 router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
   const userId = req.user!.id;
   const sort = req.query.sort || 'updated_at';
-  const page = parseInt(req.query.page as string) || 1;
-  const pageSize = parseInt(req.query.pageSize as string) || 5;
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const pageSize = Math.max(1, Math.min(100, parseInt(req.query.pageSize as string) || 5));
   const offset = (page - 1) * pageSize;
   
   const orderBy = sort === 'popular' 
@@ -190,12 +190,12 @@ router.get('/:id', authMiddleware, (req: AuthRequest, res: Response) => {
     FROM documents d
     LEFT JOIN users u ON d.author_id = u.id
     LEFT JOIN document_tags dt ON d.id = dt.document_id
-    LEFT JOIN tags t ON dt.tag_id = t.id
+    LEFT JOIN tags t ON dt.tag_id = t.id AND t.user_id = ?
     LEFT JOIN document_categories dc ON d.id = dc.document_id
-    LEFT JOIN categories c ON dc.category_id = c.id
+    LEFT JOIN categories c ON dc.category_id = c.id AND c.user_id = ?
     WHERE d.id = ? AND (d.visibility = 'public' OR d.author_id = ?)
     GROUP BY d.id
-  `, [req.params.id, userId]);
+  `, [userId, userId, req.params.id, userId]);
   const doc = docs[0];
   if (!doc) {
     return res.status(404).json({ error: '文档不存在' });
