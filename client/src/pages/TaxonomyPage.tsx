@@ -350,11 +350,11 @@ export default function TaxonomyPage() {
               onKeyDown={(e) => e.key === 'Enter' && handleSaveTag()}
             />
             <button 
-              onClick={() => { setEditingTag(null); setShowTagModal(true); }}
-              disabled={!tagName.trim()}
+              onClick={handleSaveTag}
+              disabled={!tagName.trim() || saving}
               className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-medium rounded-xl hover:from-blue-600 hover:to-indigo-700 transition-all disabled:opacity-50"
             >
-              添加标签
+              {saving ? '添加中...' : '添加标签'}
             </button>
           </div>
           
