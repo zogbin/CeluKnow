@@ -28,6 +28,10 @@ export default function Home() {
   const navigate = useNavigate()
 
   useEffect(() => {
+    setPage(1)
+  }, [search])
+
+  useEffect(() => {
     if (search.trim()) {
       api.get(`/documents/search?q=${encodeURIComponent(search)}`).then(res => setDocs(res.data)).catch(() => {})
     } else {
