@@ -13,6 +13,7 @@ interface Doc {
   id: number
   title: string
   category_id?: number
+  visibility?: string
 }
 
 declare global {
@@ -55,13 +56,16 @@ export default function Sidebar({ onClose, defaultCollapsed = false }: SidebarPr
     ]).then(([catRes, docRes]) => {
       const cats = catRes.data
       const docData = Array.isArray(docRes.data) ? docRes.data : (docRes.data.docs || [])
-      const docs = docData.map((d: any) => {
-        // 使用返回的 category_ids
+      const docs = docData.filter((d: any) => {
+        const catIds = d.category_ids || []
+        return catIds.length > 0 || d.visibility !== 'public'
+      }).map((d: any) => {
         const catIds = d.category_ids || []
         return { 
           id: d.id, 
           title: d.title, 
-          category_id: catIds.length > 0 ? catIds[0] : undefined 
+          category_id: catIds.length > 0 ? catIds[0] : undefined,
+          visibility: d.visibility
         }
       })
       setCategories(cats)
