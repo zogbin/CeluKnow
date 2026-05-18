@@ -933,34 +933,39 @@ export default function DocumentPage() {
               <p className="text-xs text-gray-500">选择文档的标签</p>
             </div>
             
-            <div className="flex-1 overflow-auto p-4">
-              <div className="flex flex-wrap gap-2">
-                {allTags.map(tag => (
-                  <button
-                    key={tag.id}
-                    onClick={() => {
-                      const newTags = docTags.includes(tag.name)
-                        ? docTags.filter(t => t !== tag.name)
-                        : [...docTags, tag.name]
-                      setDocTags(newTags)
+            <div className="flex-1 overflow-auto p-4 space-y-2">
+              {allTags.map(tag => (
+                <label 
+                  key={tag.id}
+                  className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 cursor-pointer transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={docTags.includes(tag.name)}
+                    onChange={async (e) => {
+                      try {
+                        if (e.target.checked) {
+                          await api.post(`/tags/${id}/tags`, { tag_ids: [tag.id] })
+                          setDocTags(prev => [...prev, tag.name])
+                        } else {
+                          await api.delete(`/tags/${id}/tags/${tag.id}`)
+                          setDocTags(prev => prev.filter(t => t !== tag.name))
+                        }
+                      } catch (err: any) {
+                        alert(err.response?.data?.error || '操作失败')
+                      }
                     }}
-                    className={`px-3 py-1.5 rounded-full text-sm transition-all ${
-                      docTags.includes(tag.name)
-                        ? 'bg-blue-100 text-blue-700 border-2 border-blue-500'
-                        : 'bg-gray-100 text-gray-600 border-2 border-transparent hover:border-gray-300'
-                    }`}
-                  >
-                    {tag.name}
-                  </button>
-                ))}
-                {allTags.length === 0 && (
-                  <p className="text-sm text-gray-400 text-center w-full py-4">暂无标签</p>
-                )}
-              </div>
-              
-              {docTags.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-gray-100">
-                  <p className="text-xs text-gray-500 mb-2">已选择: {docTags.join(', ')}</p>
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">{tag.name}</span>
+                </label>
+              ))}
+              {allTags.length === 0 && (
+                <div className="text-center py-8">
+                  <p className="text-sm text-gray-400 mb-3">暂无标签</p>
+                  <Link to="/categories" className="text-sm text-blue-600 hover:text-blue-700">
+                    去创建标签 →
+                  </Link>
                 </div>
               )}
             </div>
