@@ -70,33 +70,44 @@ router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
   const page = usePagination ? Math.max(1, parseInt(pageParam as string) || 1) : 1;
   const pageSize = usePagination ? Math.max(1, Math.min(100, parseInt(pageSizeParam as string) || 5)) : null;
   const offset = pageSize ? (page - 1) * pageSize : 0;
+  const classified = req.query.classified === 'true';
   
   const orderBy = sort === 'popular' 
     ? 'ORDER BY view_count DESC, comment_count DESC, d.updated_at DESC'
     : 'ORDER BY d.updated_at DESC';
   
-  const total = usePagination ? run(`
-    SELECT COUNT(*) as count FROM documents
-    WHERE visibility = 'public' OR author_id = ?
-  `, [userId])[0].count : null;
+  const totalSql = `
+    SELECT COUNT(*) as count FROM documents d
+    WHERE (visibility = 'public' OR author_id = ?)
+    ${classified ? `AND (EXISTS (SELECT 1 FROM document_categories dc2 JOIN categories c2 ON dc2.category_id = c2.id WHERE dc2.document_id = d.id AND c2.user_id = ?) OR EXISTS (SELECT 1 FROM document_tags dt2 JOIN tags t2 ON dt2.tag_id = t2.id WHERE dt2.document_id = d.id AND t2.user_id = ?))` : ''}
+  `
+  const totalParams = classified ? [userId, userId, userId] : [userId]
+  const total = usePagination ? run(totalSql, totalParams)[0].count : null;
   
   const docs = run(`
     SELECT d.*, u.username as author_name,
     GROUP_CONCAT(DISTINCT t.name) as tags,
     GROUP_CONCAT(DISTINCT c.id) as category_ids,
     COALESCE((SELECT COUNT(*) FROM document_views WHERE document_id = d.id), 0) as view_count,
-    COALESCE((SELECT COUNT(*) FROM comments WHERE document_id = d.id), 0) as comment_count
+    COALESCE((SELECT COUNT(*) FROM comments WHERE document_id = d.id), 0) as comment_count,
+    COALESCE((SELECT 1 FROM likes WHERE document_id = d.id AND user_id = ?), 0) as liked
     FROM documents d
     LEFT JOIN users u ON d.author_id = u.id
     LEFT JOIN document_tags dt ON d.id = dt.document_id
     LEFT JOIN tags t ON dt.tag_id = t.id AND t.user_id = ?
     LEFT JOIN document_categories dc ON d.id = dc.document_id
     LEFT JOIN categories c ON dc.category_id = c.id AND c.user_id = ?
-    WHERE d.visibility = 'public' OR d.author_id = ?
+    WHERE (d.visibility = 'public' OR d.author_id = ?)
+    ${classified ? `AND (EXISTS (SELECT 1 FROM document_categories dc2 JOIN categories c2 ON dc2.category_id = c2.id WHERE dc2.document_id = d.id AND c2.user_id = ?) OR EXISTS (SELECT 1 FROM document_tags dt2 JOIN tags t2 ON dt2.tag_id = t2.id WHERE dt2.document_id = d.id AND t2.user_id = ?))` : ''}
     GROUP BY d.id
-    ${orderBy}
+    ORDER BY liked DESC, ${orderBy.replace('ORDER BY ', '')}
     ${pageSize ? 'LIMIT ? OFFSET ?' : ''}
-  `, pageSize ? [userId, userId, userId, pageSize, offset] : [userId, userId, userId]);
+  `, (() => {
+    const params: any[] = [userId, userId, userId, userId]
+    if (classified) params.push(userId, userId)
+    if (pageSize) params.push(pageSize, offset)
+    return params
+  })());
   
   const result = docs.map((d: any) => {
     const category_ids = d.category_ids ? d.category_ids.split(',').map((id: string) => parseInt(id)).filter((id: number) => !isNaN(id)) : []

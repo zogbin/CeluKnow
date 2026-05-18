@@ -12,6 +12,8 @@ interface Doc {
   visibility: string
   view_count: number
   comment_count: number
+  liked?: number
+  category_ids?: number[]
 }
 
 export default function Home() {
@@ -24,6 +26,7 @@ export default function Home() {
   const [creating, setCreating] = useState(false)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
+  const [classified, setClassified] = useState(false)
   const pageSize = 5
   const navigate = useNavigate()
 
@@ -35,12 +38,12 @@ export default function Home() {
     if (search.trim()) {
       api.get(`/documents/search?q=${encodeURIComponent(search)}`).then(res => setDocs(res.data)).catch(() => {})
     } else {
-      api.get(`/documents?sort=${sort}&page=${page}&pageSize=${pageSize}`).then(res => {
+      api.get(`/documents?sort=${sort}&page=${page}&pageSize=${pageSize}${classified ? '&classified=true' : ''}`).then(res => {
         setDocs(res.data.docs || [])
         setTotal(res.data.total || 0)
       }).catch(() => {})
     }
-  }, [search, sort, page])
+  }, [search, sort, page, classified])
 
   const handleCreate = async () => {
     if (!newDocTitle.trim()) return
@@ -220,6 +223,15 @@ export default function Home() {
           <option value="popular">热门</option>
           <option value="updated_at">最新</option>
         </select>
+        <label className="flex items-center gap-2 px-3 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-600 cursor-pointer hover:border-gray-300 transition-all">
+          <input
+            type="checkbox"
+            checked={classified}
+            onChange={(e) => setClassified(e.target.checked)}
+            className="rounded border-gray-300 text-blue-600"
+          />
+          仅显示已分类文档
+        </label>
       </div>
       
       <div className="grid gap-4">
@@ -256,6 +268,13 @@ export default function Home() {
                 </svg>
                 {doc.comment_count || 0}
               </span>
+              {doc.liked ? (
+                <span className="flex items-center gap-1 text-red-500">
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                  </svg>
+                </span>
+              ) : null}
               <span className="hidden md:flex items-center gap-1">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
