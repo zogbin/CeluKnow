@@ -157,6 +157,33 @@ router.get('/graph', authMiddleware, (req: AuthRequest, res: Response) => {
     }
   }
   
+  // Link by shared categories
+  const docCategories = run(`
+    SELECT dc.document_id, c.name as category_name
+    FROM document_categories dc
+    JOIN categories c ON dc.category_id = c.id
+    WHERE dc.document_id IN (SELECT id FROM documents WHERE visibility = 'public' OR author_id = ?)
+  `, [userId]) as any[];
+  
+  const categoryDocs: Record<string, number[]> = {}
+  for (const dc of docCategories) {
+    if (!categoryDocs[dc.category_name]) categoryDocs[dc.category_name] = []
+    categoryDocs[dc.category_name].push(dc.document_id)
+  }
+  
+  for (const catName in categoryDocs) {
+    const docIds = categoryDocs[catName]
+    for (let i = 0; i < docIds.length; i++) {
+      for (let j = i + 1; j < docIds.length; j++) {
+        const key = `${Math.min(docIds[i], docIds[j])}-${Math.max(docIds[i], docIds[j])}`
+        if (!linkSet.has(key)) {
+          linkSet.add(key)
+          links.push({ source: docIds[i], target: docIds[j], type: 'category', label: catName })
+        }
+      }
+    }
+  }
+  
   res.json({ nodes: docs.map(d => ({ id: d.id, name: d.title })), links });
 });
 
