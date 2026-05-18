@@ -604,7 +604,7 @@ const handleOpenWithWPS = async (filePath: string, x: number = 0, y: number = 0)
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <div>
           <h2 className="text-2xl font-semibold text-gray-900">会议中心</h2>
-          <p className="text-gray-500 mt-1">共 {meetings.filter(m => new Date(m.meeting_date) > Date.now()).length} 个未召开会议</p>
+          <p className="text-gray-500 mt-1">共 {meetings.filter(m => new Date(m.meeting_date).getTime() > Date.now()).length} 个未召开会议</p>
         </div>
         {canCreateMeeting && (
           <button 
