@@ -789,11 +789,8 @@ export default function DocumentPage() {
                                   await api.delete(`/categories/${id}/categories/${cat.id}`)
                                   setDocCategories(prev => prev.filter(c => c !== cat.id))
                                 } else {
-                                  if (docCategories.length > 0) {
-                                    await api.delete(`/categories/${id}/categories/${docCategories[0]}`)
-                                  }
                                   await api.post(`/categories/${id}/categories`, { category_ids: [cat.id] })
-                                  setDocCategories([cat.id])
+                                  setDocCategories(prev => [...prev, cat.id])
                                 }
                               } catch (err: any) {
                                 alert(err.response?.data?.error || '更新失败')
