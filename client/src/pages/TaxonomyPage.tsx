@@ -234,16 +234,16 @@ export default function TaxonomyPage() {
         </button>
       </div>
 
-      <div className="flex gap-2 mb-6">
+      <div className="flex gap-3 mb-6">
         <button
           onClick={() => setActiveTab('categories')}
-          className={`px-4 py-2 rounded-xl font-medium transition-all ${activeTab === 'categories' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+          className={`px-5 py-2.5 rounded-xl font-medium transition-all ${activeTab === 'categories' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
         >
           分类 ({categories.length})
         </button>
         <button
           onClick={() => setActiveTab('tags')}
-          className={`px-4 py-2 rounded-xl font-medium transition-all ${activeTab === 'tags' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+          className={`px-5 py-2.5 rounded-xl font-medium transition-all ${activeTab === 'tags' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
         >
           标签 ({tags.length})
         </button>

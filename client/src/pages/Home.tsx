@@ -162,7 +162,7 @@ export default function Home() {
           </div>
           <p className="text-gray-500 mt-1">共 {total} 篇文档</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <input
             ref={fileInputRef}
             type="file"
@@ -247,49 +247,49 @@ export default function Home() {
             }}
           >
             <h3 className="font-medium text-lg text-gray-900 group-hover:text-blue-600 transition-colors cursor-grab active:cursor-grabbing">{doc.title}</h3>
-            <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-3 text-xs md:text-sm text-gray-500">
-              <span className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-3 md:gap-6 mt-3 text-xs md:text-sm text-gray-500">
+              <span className="flex items-center gap-1.5">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                 </svg>
                 <span className="hidden sm:inline">{doc.author_name}</span>
                 <span className="sm:hidden">{doc.author_name.slice(0, 4)}</span>
               </span>
-              <span className="flex items-center gap-1">
+              <span className="flex items-center gap-1.5">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
                 {doc.view_count || 0}
               </span>
-              <span className="flex items-center gap-1">
+              <span className="flex items-center gap-1.5">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
                 {doc.comment_count || 0}
               </span>
               {doc.liked ? (
-                <span className="flex items-center gap-1 text-red-500">
+                <span className="flex items-center gap-1.5 text-red-500">
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
                   </svg>
                 </span>
               ) : null}
-              <span className="hidden md:flex items-center gap-1">
+              <span className="hidden md:flex items-center gap-1.5">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 {new Date(doc.updated_at).toLocaleDateString('zh-CN')}
               </span>
               {doc.tags && (
-                <span className="flex items-center gap-1 truncate max-w-[80px] md:max-w-none">
+                <span className="flex items-center gap-1.5 truncate max-w-[80px] md:max-w-none">
                   <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                   </svg>
                   <span className="truncate">{doc.tags}</span>
                 </span>
               )}
-              <span className={`flex items-center gap-1 ${(doc as any).visibility === 'public' ? 'text-green-600' : 'text-gray-400'}`}>
+              <span className={`flex items-center gap-1.5 ${(doc as any).visibility === 'public' ? 'text-green-600' : 'text-gray-400'}`}>
                 {(doc as any).visibility === 'public' ? (
                   <svg className="w-4 h-4 hidden sm:flex" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
