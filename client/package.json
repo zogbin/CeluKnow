@@ -17,6 +17,12 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.20.0"
   },
+  "browserslist": [
+    "> 0.2%",
+    "last 2 versions",
+    "not dead",
+    "Chrome >= 60"
+  ],
   "devDependencies": {
     "@types/jszip": "^3.4.1",
     "@types/react": "^18.2.0",
