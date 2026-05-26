@@ -2,10 +2,88 @@ import { Router, Response } from 'express';
 import { run, runInsert, runUpdate } from '../db';
 import { authMiddleware, AuthRequest, roleMiddleware } from '../middleware/auth';
 import { storage } from '../utils/storage';
+import { autoLinkContent, rebuildUserIndex, getIndexData } from '../utils/indexHelper';
+import fs from 'fs';
+import path from 'path';
 
 const router = Router();
+const IMAGES_DIR = path.join(__dirname, '../../uploads/images');
 
 storage.ensureDir();
+if (!fs.existsSync(IMAGES_DIR)) {
+  fs.mkdirSync(IMAGES_DIR, { recursive: true });
+}
+
+function isExternalUrl(url: string): boolean {
+  return (url.startsWith('http://') || url.startsWith('https://'))
+    && !url.startsWith('http://localhost')
+    && !url.startsWith('http://127.0.0.1')
+    && !url.startsWith('/uploads/');
+}
+
+async function downloadImage(docId: string, url: string): Promise<string> {
+  let ext = '';
+  try {
+    const urlPath = new URL(url).pathname;
+    const parsedExt = path.extname(urlPath);
+    if (parsedExt && parsedExt.length <= 6) ext = parsedExt;
+  } catch {}
+  if (!ext) ext = '.jpg';
+
+  const docDir = path.join(IMAGES_DIR, docId);
+  if (!fs.existsSync(docDir)) {
+    fs.mkdirSync(docDir, { recursive: true });
+  }
+
+  const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+  const filepath = path.join(docDir, filename);
+
+  const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  fs.writeFileSync(filepath, buffer);
+
+  return `/uploads/images/${docId}/${filename}`;
+}
+
+async function processContentImages(docId: string, content: string): Promise<string> {
+  const urlMap = new Map<string, string>();
+
+  const mdRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+  let match;
+  while ((match = mdRegex.exec(content)) !== null) {
+    const url = match[2];
+    if (isExternalUrl(url) && !urlMap.has(url)) {
+      try {
+        const localPath = await downloadImage(docId, url);
+        urlMap.set(url, localPath);
+      } catch (e) {
+        console.error(`[image-dl] ${url.substring(0, 60)}:`, (e as Error).message);
+      }
+    }
+  }
+
+  const htmlRegex = /<img[^>]+src="([^"]+)"[^>]*>/g;
+  while ((match = htmlRegex.exec(content)) !== null) {
+    const url = match[1];
+    if (isExternalUrl(url) && !urlMap.has(url)) {
+      try {
+        const localPath = await downloadImage(docId, url);
+        urlMap.set(url, localPath);
+      } catch (e) {
+        console.error(`[image-dl] ${url.substring(0, 60)}:`, (e as Error).message);
+      }
+    }
+  }
+
+  let result = content;
+  urlMap.forEach((localPath, originalUrl) => {
+    result = result.split(originalUrl).join(localPath);
+  });
+
+  return result;
+}
 
 router.get('/help', authMiddleware, (req: AuthRequest, res: Response) => {
   const fs = require('fs');
@@ -30,9 +108,47 @@ router.put('/help', authMiddleware, (req: AuthRequest, res: Response) => {
   }
 });
 
+router.get('/sidebar-data', authMiddleware, (req: AuthRequest, res: Response) => {
+  const userId = req.user!.id;
+  const userCats = run('SELECT * FROM categories WHERE user_id = ? ORDER BY name', [userId]) as any[];
+  const systemCats = run('SELECT * FROM categories WHERE is_system = 1 ORDER BY name') as any[];
+  const categories = [...userCats, ...systemCats];
+
+  const categoryDocs: Record<number, any[]> = {};
+  const allDocIds = new Set<number>();
+  const assignedDocIds = new Set<number>();
+
+  for (const cat of categories) {
+    const docs = run(`
+      SELECT d.id, d.title, d.visibility, dc.sort_order
+      FROM documents d
+      JOIN document_categories dc ON d.id = dc.document_id
+      WHERE dc.category_id = ? AND (d.visibility = 'public' OR d.author_id = ?)
+      ORDER BY dc.sort_order ASC, d.updated_at DESC
+    `, [cat.id, userId]) as any[];
+    categoryDocs[cat.id] = docs;
+    for (const d of docs) {
+      allDocIds.add(d.id);
+      assignedDocIds.add(d.id);
+    }
+  }
+
+  // Uncategorized: all non-public docs not in any category
+  const allDocs = run('SELECT id, title, visibility FROM documents WHERE author_id = ? AND visibility != \'public\'', [userId]) as any[];
+  const uncategorized = allDocs.filter((d: any) => !assignedDocIds.has(d.id));
+
+  res.json({ categories, categoryDocs, uncategorized });
+});
+
+router.get('/knowledge-index', authMiddleware, (req: AuthRequest, res: Response) => {
+  const data = getIndexData(req.user!.id);
+  res.json(data);
+});
+
 router.get('/search', authMiddleware, (req: AuthRequest, res: Response) => {
   const userId = req.user!.id;
   const { q, tag } = req.query;
+  const excludeSystem = req.query.excludeSystemCategories === 'true';
   let sql = `
     SELECT d.*, u.username as author_name, 
     GROUP_CONCAT(t.name) as tags,
@@ -44,10 +160,13 @@ router.get('/search', authMiddleware, (req: AuthRequest, res: Response) => {
     LEFT JOIN document_tags dt ON d.id = dt.document_id
     LEFT JOIN tags t ON dt.tag_id = t.id AND t.user_id = ?
     LEFT JOIN document_categories dc ON d.id = dc.document_id
-    LEFT JOIN categories c ON dc.category_id = c.id AND c.user_id = ?
+    LEFT JOIN categories c ON dc.category_id = c.id AND (c.user_id = ? OR c.is_system = 1)
     WHERE (d.visibility = 'public' OR d.author_id = ?)
   `;
   const params: any[] = [userId, userId, userId];
+  if (excludeSystem) {
+    sql += ' AND (NOT EXISTS (SELECT 1 FROM document_categories dc3 WHERE dc3.document_id = d.id) OR EXISTS (SELECT 1 FROM document_categories dc3 JOIN categories c3 ON dc3.category_id = c3.id WHERE dc3.document_id = d.id AND c3.is_system = 0))';
+  }
   if (q) {
     sql += ' AND (d.title LIKE ? OR d.content LIKE ?)';
     params.push(`%${q}%`, `%${q}%`);
@@ -71,6 +190,7 @@ router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
   const pageSize = usePagination ? Math.max(1, Math.min(100, parseInt(pageSizeParam as string) || 5)) : null;
   const offset = pageSize ? (page - 1) * pageSize : 0;
   const classified = req.query.classified === 'true';
+  const excludeSystem = req.query.excludeSystemCategories === 'true';
   
   const orderBy = sort === 'popular' 
     ? 'ORDER BY view_count DESC, comment_count DESC, d.updated_at DESC'
@@ -79,7 +199,8 @@ router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
   const totalSql = `
     SELECT COUNT(*) as count FROM documents d
     WHERE (visibility = 'public' OR author_id = ?)
-    ${classified ? `AND (EXISTS (SELECT 1 FROM document_categories dc2 JOIN categories c2 ON dc2.category_id = c2.id WHERE dc2.document_id = d.id AND c2.user_id = ?) OR EXISTS (SELECT 1 FROM document_tags dt2 JOIN tags t2 ON dt2.tag_id = t2.id WHERE dt2.document_id = d.id AND t2.user_id = ?))` : ''}
+    ${classified ? `AND (EXISTS (SELECT 1 FROM document_categories dc2 JOIN categories c2 ON dc2.category_id = c2.id WHERE dc2.document_id = d.id AND (c2.user_id = ? OR c2.is_system = 1)) OR EXISTS (SELECT 1 FROM document_tags dt2 JOIN tags t2 ON dt2.tag_id = t2.id WHERE dt2.document_id = d.id AND t2.user_id = ?))` : ''}
+    ${excludeSystem ? `AND (NOT EXISTS (SELECT 1 FROM document_categories dc3 WHERE dc3.document_id = d.id) OR EXISTS (SELECT 1 FROM document_categories dc3 JOIN categories c3 ON dc3.category_id = c3.id WHERE dc3.document_id = d.id AND c3.is_system = 0))` : ''}
   `
   const totalParams = classified ? [userId, userId, userId] : [userId]
   const total = usePagination ? run(totalSql, totalParams)[0].count : null;
@@ -96,9 +217,10 @@ router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
     LEFT JOIN document_tags dt ON d.id = dt.document_id
     LEFT JOIN tags t ON dt.tag_id = t.id AND t.user_id = ?
     LEFT JOIN document_categories dc ON d.id = dc.document_id
-    LEFT JOIN categories c ON dc.category_id = c.id AND c.user_id = ?
+    LEFT JOIN categories c ON dc.category_id = c.id AND (c.user_id = ? OR c.is_system = 1)
     WHERE (d.visibility = 'public' OR d.author_id = ?)
-    ${classified ? `AND (EXISTS (SELECT 1 FROM document_categories dc2 JOIN categories c2 ON dc2.category_id = c2.id WHERE dc2.document_id = d.id AND c2.user_id = ?) OR EXISTS (SELECT 1 FROM document_tags dt2 JOIN tags t2 ON dt2.tag_id = t2.id WHERE dt2.document_id = d.id AND t2.user_id = ?))` : ''}
+    ${classified ? `AND (EXISTS (SELECT 1 FROM document_categories dc2 JOIN categories c2 ON dc2.category_id = c2.id WHERE dc2.document_id = d.id AND (c2.user_id = ? OR c2.is_system = 1)) OR EXISTS (SELECT 1 FROM document_tags dt2 JOIN tags t2 ON dt2.tag_id = t2.id WHERE dt2.document_id = d.id AND t2.user_id = ?))` : ''}
+    ${excludeSystem ? `AND (NOT EXISTS (SELECT 1 FROM document_categories dc3 WHERE dc3.document_id = d.id) OR EXISTS (SELECT 1 FROM document_categories dc3 JOIN categories c3 ON dc3.category_id = c3.id WHERE dc3.document_id = d.id AND c3.is_system = 0))` : ''}
     GROUP BY d.id
     ORDER BY liked DESC, ${orderBy.replace('ORDER BY ', '')}
     ${pageSize ? 'LIMIT ? OFFSET ?' : ''}
@@ -175,34 +297,48 @@ router.get('/graph', authMiddleware, (req: AuthRequest, res: Response) => {
     }
   }
   
-  // Link by shared categories
-  const docCategories = run(`
-    SELECT dc.document_id, c.name as category_name
+  // Per-node categories (for coloring)
+  const docCats = run(`
+    SELECT dc.document_id, c.name, c.color
     FROM document_categories dc
     JOIN categories c ON dc.category_id = c.id
     WHERE dc.document_id IN (SELECT id FROM documents WHERE visibility = 'public' OR author_id = ?)
   `, [userId]) as any[];
-  
-  const categoryDocs: Record<string, number[]> = {}
-  for (const dc of docCategories) {
-    if (!categoryDocs[dc.category_name]) categoryDocs[dc.category_name] = []
-    categoryDocs[dc.category_name].push(dc.document_id)
+  const nodeCategories: Record<number, { name: string; color: string }[]> = {};
+  for (const row of docCats) {
+    if (!nodeCategories[row.document_id]) nodeCategories[row.document_id] = [];
+    nodeCategories[row.document_id].push({ name: row.name, color: row.color });
   }
   
-  for (const catName in categoryDocs) {
-    const docIds = categoryDocs[catName]
-    for (let i = 0; i < docIds.length; i++) {
-      for (let j = i + 1; j < docIds.length; j++) {
-        const key = `${Math.min(docIds[i], docIds[j])}-${Math.max(docIds[i], docIds[j])}`
-        if (!linkSet.has(key)) {
-          linkSet.add(key)
-          links.push({ source: docIds[i], target: docIds[j], type: 'category', label: catName })
-        }
-      }
-    }
+  // Per-node tags (for secondary coloring)
+  const nodeTagsMap: Record<number, string[]> = {};
+  for (const dt of docTags) {
+    if (!nodeTagsMap[dt.document_id]) nodeTagsMap[dt.document_id] = [];
+    nodeTagsMap[dt.document_id].push(dt.tag_name);
   }
   
-  res.json({ nodes: docs.map(d => ({ id: d.id, name: d.title })), links });
+  // Incoming link count (for node size)
+  const incomingCount: Record<number, number> = {};
+  for (const link of links) {
+    incomingCount[link.target] = (incomingCount[link.target] || 0) + 1;
+  }
+  
+  const linkedIds = new Set<number>();
+  for (const link of links) {
+    linkedIds.add(link.source);
+    linkedIds.add(link.target);
+  }
+  const linkedDocs = docs.filter(d => linkedIds.has(d.id));
+  res.json({
+    nodes: linkedDocs.map(d => ({
+      id: d.id,
+      name: d.title,
+      val: (incomingCount[d.id] || 0) + 1,
+      categories: nodeCategories[d.id] || [],
+      tags: nodeTagsMap[d.id] || []
+    })),
+    links
+  });
 });
 
 router.get('/tree', authMiddleware, (req: AuthRequest, res: Response) => {
@@ -258,10 +394,11 @@ router.post('/', authMiddleware, roleMiddleware(['admin', 'editor']), (req: Auth
     [title, folder_path || '/', content || '', req.user!.id, visibility]
   );
   storage.writeDocument(folder_path || '/', title, content || '');
+  rebuildUserIndex(req.user!.id);
   res.json({ id, title, folder_path: folder_path || '/', visibility });
 });
 
-router.put('/:id', authMiddleware, roleMiddleware(['admin', 'editor']), (req: AuthRequest, res: Response) => {
+router.put('/:id', authMiddleware, roleMiddleware(['admin', 'editor']), async (req: AuthRequest, res: Response) => {
   const { title, content, folder_path, visibility } = req.body;
   const docs = run('SELECT * FROM documents WHERE id = ?', [req.params.id]);
   const doc = docs[0];
@@ -271,7 +408,21 @@ router.put('/:id', authMiddleware, roleMiddleware(['admin', 'editor']), (req: Au
   if (req.user!.role !== 'admin' && doc.author_id !== req.user!.id) {
     return res.status(403).json({ error: '权限不足' });
   }
-  if (content !== undefined && content !== doc.content) {
+
+  let finalContent = content;
+  if (content !== undefined) {
+    try {
+      finalContent = await processContentImages(String(req.params.id), content);
+    } catch (e) {
+      console.error('[image-dl] 处理图片失败:', e);
+      finalContent = content;
+    }
+    // Auto-link matching system category document titles
+    const docId = parseInt(req.params.id);
+    finalContent = autoLinkContent(finalContent, docId, req.user!.id);
+  }
+
+  if (finalContent !== doc.content) {
     runInsert(
       'INSERT INTO document_versions (document_id, content, author_id, message) VALUES (?, ?, ?, ?)',
       [req.params.id, doc.content, req.user!.id, '自动保存版本']
@@ -279,11 +430,12 @@ router.put('/:id', authMiddleware, roleMiddleware(['admin', 'editor']), (req: Au
   }
   runUpdate(
     'UPDATE documents SET title = ?, content = ?, folder_path = ?, visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-    [title || doc.title, content ?? doc.content, folder_path ?? doc.folder_path, visibility ?? doc.visibility, req.params.id]
+    [title || doc.title, finalContent ?? doc.content, folder_path ?? doc.folder_path, visibility ?? doc.visibility, req.params.id]
   );
-  if (content !== undefined) {
-    storage.writeDocument(folder_path ?? doc.folder_path, title ?? doc.title, content);
+  if (finalContent !== undefined) {
+    storage.writeDocument(folder_path ?? doc.folder_path, title ?? doc.title, finalContent);
   }
+  rebuildUserIndex(req.user!.id);
   res.json({ success: true });
 });
 
@@ -298,6 +450,7 @@ router.delete('/:id', authMiddleware, (req: AuthRequest, res: Response) => {
   }
   runUpdate('DELETE FROM documents WHERE id = ?', [req.params.id]);
   storage.deleteDocument(doc.folder_path, doc.title);
+  rebuildUserIndex(req.user!.id);
   res.json({ success: true });
 });
 

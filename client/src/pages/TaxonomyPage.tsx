@@ -7,11 +7,13 @@ interface Category {
   name: string
   color: string
   icon: string
+  created_at?: string
 }
 
 interface Tag {
   id: number
   name: string
+  created_at?: string
 }
 
 const defaultIcons = ['folder', 'book', 'star', 'heart', 'code', 'lightbulb', 'rocket', 'target']
@@ -35,7 +37,18 @@ export default function TaxonomyPage() {
   const [tagName, setTagName] = useState('')
   
   const [saving, setSaving] = useState(false)
+  const [catSort, setCatSort] = useState<'name' | 'created_at'>('name')
+  const [tagSort, setTagSort] = useState<'name' | 'created_at'>('name')
   const navigate = useNavigate()
+
+  const sortedCategories = [...categories].sort((a, b) => {
+    if (catSort === 'name') return a.name.localeCompare(b.name)
+    return (a.created_at || '').localeCompare(b.created_at || '')
+  })
+  const sortedTags = [...tags].sort((a, b) => {
+    if (tagSort === 'name') return a.name.localeCompare(b.name)
+    return (a.created_at || '').localeCompare(b.created_at || '')
+  })
 
   const [expandedCategoryId, setExpandedCategoryId] = useState<number | null>(null)
   const [expandedTagId, setExpandedTagId] = useState<number | null>(null)
@@ -202,6 +215,34 @@ export default function TaxonomyPage() {
     } catch {}
   }
 
+  const handleMoveCategoryDoc = async (catId: number, docId: number, fromIdx: number, toIdx: number) => {
+    const docs = categoryDocs[catId] || []
+    if (toIdx < 0 || toIdx >= docs.length) return
+    const newDocs = [...docs]
+    const docIds = newDocs.map((d: any) => d.id)
+    ;[docIds[fromIdx], docIds[toIdx]] = [docIds[toIdx], docIds[fromIdx]]
+    try {
+      await api.put(`/categories/${catId}/reorder`, { doc_ids: docIds })
+      const [moved] = newDocs.splice(fromIdx, 1)
+      newDocs.splice(toIdx, 0, moved)
+      setCategoryDocs(prev => ({ ...prev, [catId]: newDocs }))
+    } catch {}
+  }
+
+  const handleMoveTagDoc = async (tagId: number, docId: number, fromIdx: number, toIdx: number) => {
+    const docs = tagDocs[tagId] || []
+    if (toIdx < 0 || toIdx >= docs.length) return
+    const newDocs = [...docs]
+    const docIds = newDocs.map((d: any) => d.id)
+    ;[docIds[fromIdx], docIds[toIdx]] = [docIds[toIdx], docIds[fromIdx]]
+    try {
+      await api.put(`/tags/${tagId}/reorder`, { doc_ids: docIds })
+      const [moved] = newDocs.splice(fromIdx, 1)
+      newDocs.splice(toIdx, 0, moved)
+      setTagDocs(prev => ({ ...prev, [tagId]: newDocs }))
+    } catch {}
+  }
+
   const iconSvg = (iconName: string) => {
     const icons: Record<string, JSX.Element> = {
       folder: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />,
@@ -251,7 +292,11 @@ export default function TaxonomyPage() {
 
       {activeTab === 'categories' && (
         <div>
-          <div className="flex justify-end mb-4">
+          <div className="flex justify-end gap-3 mb-4">
+            <div className="flex bg-gray-100 rounded-xl p-0.5">
+              <button onClick={() => setCatSort('name')} className={`px-3 py-1.5 text-sm rounded-lg transition-all ${catSort === 'name' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>名称</button>
+              <button onClick={() => setCatSort('created_at')} className={`px-3 py-1.5 text-sm rounded-lg transition-all ${catSort === 'created_at' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>创建时间</button>
+            </div>
             <button 
               onClick={() => { setEditingCat(null); setCatName(''); setCatColor(defaultColors[0]); setCatIcon(defaultIcons[0]); setShowCatModal(true); }}
               className="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-medium rounded-xl hover:from-blue-600 hover:to-indigo-700 transition-all flex items-center gap-2"
@@ -264,7 +309,7 @@ export default function TaxonomyPage() {
           </div>
           
           <div className="grid grid-cols-4 gap-4">
-            {categories.map(cat => (
+            {sortedCategories.map(cat => (
                 <div 
                   key={cat.id} 
                   className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 hover:shadow-md transition-shadow group cursor-pointer"
@@ -320,9 +365,19 @@ export default function TaxonomyPage() {
 
           {expandedCategoryId && (
             <div className="mt-3 pl-4 border-l-2 border-gray-200 space-y-1">
-              {(categoryDocs[expandedCategoryId] || []).map(doc => (
-                <div key={doc.id} className="flex items-center justify-between py-1 px-2 rounded hover:bg-gray-50">
-                  <Link to={`/doc/${doc.id}`} className="text-sm text-blue-600 hover:text-blue-800 truncate">{doc.title}</Link>
+              {(categoryDocs[expandedCategoryId] || []).map((doc, idx, arr) => (
+                <div key={doc.id} className="flex items-center justify-between py-1 px-2 rounded hover:bg-gray-50 group">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      <button onClick={() => handleMoveCategoryDoc(expandedCategoryId, doc.id, idx, idx - 1)} disabled={idx === 0} className="disabled:opacity-20 p-0.5 hover:bg-gray-200 rounded">
+                        <svg className="w-3 h-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7"/></svg>
+                      </button>
+                      <button onClick={() => handleMoveCategoryDoc(expandedCategoryId, doc.id, idx, idx + 1)} disabled={idx === arr.length - 1} className="disabled:opacity-20 p-0.5 hover:bg-gray-200 rounded">
+                        <svg className="w-3 h-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>
+                      </button>
+                    </div>
+                    <Link to={`/doc/${doc.id}`} className="text-sm text-blue-600 hover:text-blue-800 truncate">{doc.title}</Link>
+                  </div>
                   <button onClick={() => handleRemoveCategoryDoc(expandedCategoryId, doc.id)} className="text-gray-400 hover:text-red-500 shrink-0 ml-2">
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -349,6 +404,10 @@ export default function TaxonomyPage() {
               className="flex-1 px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
               onKeyDown={(e) => e.key === 'Enter' && handleSaveTag()}
             />
+            <div className="flex bg-gray-100 rounded-xl p-0.5">
+              <button onClick={() => setTagSort('name')} className={`px-3 py-1.5 text-sm rounded-lg transition-all ${tagSort === 'name' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>名称</button>
+              <button onClick={() => setTagSort('created_at')} className={`px-3 py-1.5 text-sm rounded-lg transition-all ${tagSort === 'created_at' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>创建时间</button>
+            </div>
             <button 
               onClick={handleSaveTag}
               disabled={!tagName.trim() || saving}
@@ -359,7 +418,7 @@ export default function TaxonomyPage() {
           </div>
           
           <div className="flex flex-wrap gap-3">
-            {tags.map(tag => (
+            {sortedTags.map(tag => (
               <div 
                 key={tag.id} 
                 className="group flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 font-medium rounded-full text-sm border border-blue-100 hover:shadow-md transition-all cursor-pointer"
@@ -407,9 +466,19 @@ export default function TaxonomyPage() {
 
           {expandedTagId && (
             <div className="mt-3 pl-4 border-l-2 border-gray-200 space-y-1">
-              {(tagDocs[expandedTagId] || []).map(doc => (
-                <div key={doc.id} className="flex items-center justify-between py-1 px-2 rounded hover:bg-gray-50">
-                  <Link to={`/doc/${doc.id}`} className="text-sm text-blue-600 hover:text-blue-800 truncate">{doc.title}</Link>
+              {(tagDocs[expandedTagId] || []).map((doc, idx, arr) => (
+                <div key={doc.id} className="flex items-center justify-between py-1 px-2 rounded hover:bg-gray-50 group">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      <button onClick={() => handleMoveTagDoc(expandedTagId, doc.id, idx, idx - 1)} disabled={idx === 0} className="disabled:opacity-20 p-0.5 hover:bg-gray-200 rounded">
+                        <svg className="w-3 h-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7"/></svg>
+                      </button>
+                      <button onClick={() => handleMoveTagDoc(expandedTagId, doc.id, idx, idx + 1)} disabled={idx === arr.length - 1} className="disabled:opacity-20 p-0.5 hover:bg-gray-200 rounded">
+                        <svg className="w-3 h-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>
+                      </button>
+                    </div>
+                    <Link to={`/doc/${doc.id}`} className="text-sm text-blue-600 hover:text-blue-800 truncate">{doc.title}</Link>
+                  </div>
                   <button onClick={() => handleRemoveTagDoc(expandedTagId, doc.id)} className="text-gray-400 hover:text-red-500 shrink-0 ml-2">
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

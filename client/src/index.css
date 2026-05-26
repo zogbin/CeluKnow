@@ -75,3 +75,22 @@ span[class*="copy"] button,
 [class*="copy"] span {
   display: none !important;
 }
+
+.prose table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.prose table th,
+.prose table td {
+  border: 1px solid #e5e7eb;
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.prose table td:first-child {
+  white-space: nowrap;
+  width: 1%;
+}

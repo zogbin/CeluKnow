@@ -29,6 +29,7 @@ interface Category {
   name: string
   color: string
   icon: string
+  is_system?: number
 }
 
 export default function DocumentPage() {
@@ -542,6 +543,20 @@ export default function DocumentPage() {
         return
       }
       
+      // HTML 表格
+      if (line.includes('<table') || line.includes('</table>')) {
+        const html = line
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&amp;/g, '&')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+        elements.push(
+          <div key={`html-${lineIdx}`} className="overflow-x-auto mb-4" dangerouslySetInnerHTML={{ __html: html }} />
+        )
+        return
+      }
+      
       // 段落中的 [[链接]]
       elements.push(<p key={lineIdx} className="mb-2">{renderInlineMarkdown(line)}</p>)
     })
@@ -554,8 +569,8 @@ export default function DocumentPage() {
   const renderInlineMarkdown = (text: string) => {
     const elements: JSX.Element[] = []
     
-    // 支持文档链接 [[]]、标准链接 []()、粗体、斜体、代码
-    const regex = /(\[\[([^\]]+)\]\]|\[([^\]]+)\]\(([^)]+)\)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(`[^`]+`))/g
+    // 支持图片 ![alt](url)、文档链接 [[]]、标准链接 []()、粗体、斜体、代码
+    const regex = /(!\[([^\]]*)\]\(([^)]+)\)|\[\[([^\]]+)\]\]|\[([^\]]+)\]\(([^)]+)\)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(`[^`]+`))/g
     let lastIndex = 0
     let match
     
@@ -578,6 +593,11 @@ export default function DocumentPage() {
             {title}
           </span>
         )
+      } else if (fullMatch.startsWith('![')) {
+        const imgSrc = fullMatch.match(/^!\[([^\]]*)\]\(([^)]+)\)$/)
+        if (imgSrc) {
+          elements.push(<img key={`img-${match.index}`} src={imgSrc[2]} alt={imgSrc[1]} className="max-w-full h-auto my-4 rounded-lg" loading="lazy" />)
+        }
       } else {
         // 标准 Markdown 链接 [text](url)
         const linkMatch = fullMatch.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
@@ -777,7 +797,7 @@ export default function DocumentPage() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">分类</label>
                     <div className="flex flex-wrap gap-2">
-                      {categories.map(cat => {
+                      {categories.filter(c => !c.is_system).map(cat => {
                         const isSelected = docCategories.includes(cat.id)
                         return (
                           <button
@@ -787,10 +807,14 @@ export default function DocumentPage() {
                               try {
                                 if (isSelected) {
                                   await api.delete(`/categories/${id}/categories/${cat.id}`)
-                                  setDocCategories(prev => prev.filter(c => c !== cat.id))
+                                  setDocCategories([])
                                 } else {
+                                  // Deselect current category first
+                                  if (docCategories.length > 0) {
+                                    await api.delete(`/categories/${id}/categories/${docCategories[0]}`)
+                                  }
                                   await api.post(`/categories/${id}/categories`, { category_ids: [cat.id] })
-                                  setDocCategories(prev => [...prev, cat.id])
+                                  setDocCategories([cat.id])
                                 }
                               } catch (err: any) {
                                 alert(err.response?.data?.error || '更新失败')
@@ -885,16 +909,33 @@ export default function DocumentPage() {
             </div>
             
             <div className="flex-1 overflow-auto p-4 space-y-2">
-              {categories.map(cat => (
+              {categories.filter(c => !c.is_system).map(cat => (
                 <label 
                   key={cat.id}
-                  className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 cursor-pointer transition-colors"
+                  className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors ${docCategories.includes(cat.id) ? 'bg-blue-50 ring-1 ring-blue-200' : 'hover:bg-gray-50'}`}
+                  onClick={async () => {
+                    try {
+                      if (docCategories.includes(cat.id)) {
+                        await api.delete(`/categories/${id}/categories/${cat.id}`)
+                        setDocCategories([])
+                      } else {
+                        if (docCategories.length > 0) {
+                          await api.delete(`/categories/${id}/categories/${docCategories[0]}`)
+                        }
+                        await api.post(`/categories/${id}/categories`, { category_ids: [cat.id] })
+                        setDocCategories([cat.id])
+                      }
+                    } catch (err: any) {
+                      alert(err.response?.data?.error || '操作失败')
+                    }
+                  }}
                 >
                   <input
-                    type="checkbox"
+                    type="radio"
+                    name="doc-category"
                     checked={docCategories.includes(cat.id)}
-                    onChange={(e) => handleCategoryChange(cat.id, e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    onChange={() => {}}
+                    className="w-4 h-4 border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
                   <div 
                     className="w-6 h-6 rounded-lg flex items-center justify-center"

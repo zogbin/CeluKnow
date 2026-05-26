@@ -7,6 +7,7 @@ interface Category {
   name: string
   color: string
   icon: string
+  is_system?: number
 }
 
 interface Doc {
@@ -14,6 +15,7 @@ interface Doc {
   title: string
   category_id?: number
   visibility?: string
+  sort_order?: number
 }
 
 declare global {
@@ -50,29 +52,32 @@ export default function Sidebar({ onClose, defaultCollapsed = false }: SidebarPr
   const displayName = user.nickname || user.username
 
   const loadData = () => {
-    Promise.all([
-      api.get('/categories'),
-      api.get('/documents')
-    ]).then(([catRes, docRes]) => {
-      const cats = catRes.data
-      const docData = Array.isArray(docRes.data) ? docRes.data : (docRes.data.docs || [])
-      const docs = docData.filter((d: any) => {
-        const catIds = d.category_ids || []
-        return catIds.length > 0 || d.visibility !== 'public'
-      }).map((d: any) => {
-        const catIds = d.category_ids || []
-        return { 
-          id: d.id, 
-          title: d.title, 
-          category_id: catIds.length > 0 ? catIds[0] : undefined,
-          visibility: d.visibility
+    api.get('/documents/sidebar-data').then(res => {
+      const { categories, categoryDocs, uncategorized } = res.data
+      setCategories(categories)
+      // Flatten categoryDocs into a simple doc list with category_id + sort_order
+      const docs: Doc[] = []
+      const seenDocIds = new Set<number>()
+      for (const cat of categories) {
+        const catDocs = categoryDocs[cat.id] || []
+        for (const d of catDocs) {
+          if (!seenDocIds.has(d.id)) {
+            docs.push({ id: d.id, title: d.title, category_id: cat.id, visibility: d.visibility, sort_order: d.sort_order })
+            seenDocIds.add(d.id)
+          }
         }
-      })
-      setCategories(cats)
+      }
+      // Add uncategorized docs (no sort_order needed)
+      for (const d of uncategorized) {
+        if (!seenDocIds.has(d.id)) {
+          docs.push({ id: d.id, title: d.title, visibility: d.visibility })
+          seenDocIds.add(d.id)
+        }
+      }
       setDocuments(docs)
       // 默认展开第一个分类
-      if (cats.length > 0 && expandedCats.size === 0) {
-        setExpandedCats(new Set([cats[0].id]))
+      if (categories.length > 0 && expandedCats.size === 0) {
+        setExpandedCats(new Set([categories[0].id]))
       }
     }).catch(() => {})
   }
@@ -103,7 +108,7 @@ export default function Sidebar({ onClose, defaultCollapsed = false }: SidebarPr
   }
 
   const getDocsByCategory = (catId: number) => {
-    return documents.filter(d => d.category_id === catId)
+    return documents.filter(d => d.category_id === catId).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
   }
 
   const uncategorizedDocs = documents.filter(d => !d.category_id)
@@ -204,21 +209,23 @@ export default function Sidebar({ onClose, defaultCollapsed = false }: SidebarPr
                 <div key={cat.id}>
                   <button
                     onClick={() => toggleCategory(cat.id)}
-                    onDragOver={(e) => {
-                      e.preventDefault()
-                      e.dataTransfer.dropEffect = 'move'
-                    }}
-                    onDrop={async (e) => {
-                      e.preventDefault()
-                      const docId = e.dataTransfer.getData('text/plain')
-                      if (!docId) return
-                      const id = docId.split('/').pop() || ''
-                      try {
-                        await api.post(`/categories/set-category`, { document_id: parseInt(id), category_id: cat.id })
-                        loadData()
-                        window.location.reload()
-                      } catch {}
-                    }}
+                    {...((!cat.is_system || user.role === 'admin') ? {
+                      onDragOver: (e: React.DragEvent) => {
+                        e.preventDefault()
+                        e.dataTransfer.dropEffect = 'move'
+                      },
+                      onDrop: async (e: React.DragEvent) => {
+                        e.preventDefault()
+                        const docId = e.dataTransfer.getData('text/plain')
+                        if (!docId) return
+                        const id = docId.split('/').pop() || ''
+                        try {
+                          await api.post(`/categories/set-category`, { document_id: parseInt(id), category_id: cat.id })
+                          loadData()
+                          window.location.reload()
+                        } catch {}
+                      }
+                    } : {})}
                     className="flex items-center gap-2 w-full py-2 px-3 rounded-lg hover:bg-gray-50 transition-colors"
                   >
                     <svg 

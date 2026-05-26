@@ -1,6 +1,17 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import api from '../api/auth'
+
+interface IndexSection {
+  name: string
+  docTitles: string[]
+}
+
+interface IndexData {
+  systemCategories: IndexSection[]
+  userCategories: IndexSection[]
+  tags: IndexSection[]
+}
 
 interface NodeData {
   id: number
@@ -25,6 +36,8 @@ export default function GraphPage() {
   const [nodes, setNodes] = useState<NodeData[]>([])
   const [stats, setStats] = useState({ nodes: 0, links: 0 })
   const [loading, setLoading] = useState(true)
+  const [indexData, setIndexData] = useState<IndexData | null>(null)
+  const [showIndex, setShowIndex] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const nodesRef = useRef<Node[]>([])
@@ -47,8 +60,11 @@ export default function GraphPage() {
 
   const loadData = async () => {
     try {
-      const res = await api.get('/documents/graph')
-      const { nodes, links } = res.data
+      const [graphRes, indexRes] = await Promise.all([
+        api.get('/documents/graph'),
+        api.get('/documents/knowledge-index')
+      ])
+      const { nodes, links } = graphRes.data
       
       nodesRef.current = nodes.map((n: any) => ({
         id: n.id,
@@ -66,6 +82,7 @@ export default function GraphPage() {
       }))
       setNodes(nodes.map((n: any) => ({ id: n.id, title: n.name })))
       setStats({ nodes: nodes.length, links: links.length })
+      setIndexData(indexRes.data)
     } catch (err) {
       console.error(err)
     }
@@ -114,65 +131,142 @@ export default function GraphPage() {
     canvas.width = width
     canvas.height = height
 
+    let alpha = 1
+    const alphaDecay = 0.015
+    const alphaMin = 0.001
+
     const simulate = () => {
       const nodes = nodesRef.current
       const links = linksRef.current
+      if (nodes.length === 0) return
 
-      const repulsion = 3000
-      const attraction = 0.02
-      const centerForce = 0.005
-      const damping = 0.9
-      const minDistance = 60
+      const baseRepulsion = 5000
+      const linkStrength = 0.005
+      const centerForce = 0.002
+      const damping = 0.85
+      const minLinkLen = 80
+      const linkLenPerMass = 10
+
+      const linkCounts: Record<number, number> = {}
+      const neighbors: Record<number, Set<number>> = {}
+      for (const n of nodes) {
+        linkCounts[n.id] = 0
+        neighbors[n.id] = new Set()
+      }
+      for (const link of links) {
+        linkCounts[link.source] = (linkCounts[link.source] || 0) + 1
+        linkCounts[link.target] = (linkCounts[link.target] || 0) + 1
+        neighbors[link.source].add(link.target)
+        neighbors[link.target].add(link.source)
+      }
+
+      alpha = Math.max(alphaMin, alpha - alphaDecay)
 
       for (let i = 0; i < nodes.length; i++) {
         let fx = 0, fy = 0
+        const ni = nodes[i]
+        const mi = linkCounts[ni.id] + 1
 
         for (let j = 0; j < nodes.length; j++) {
           if (i === j) continue
-          const dx = nodes[i].x - nodes[j].x
-          const dy = nodes[i].y - nodes[j].y
+          const nj = nodes[j]
+          const dx = ni.x - nj.x
+          const dy = ni.y - nj.y
           const dist = Math.sqrt(dx * dx + dy * dy) || 1
-          const force = repulsion / (dist * dist)
+          const mj = linkCounts[nj.id] + 1
+
+          const isLinked = links.some(l =>
+            (l.source === ni.id && l.target === nj.id) ||
+            (l.target === ni.id && l.source === nj.id)
+          )
+
+          let mult = 1
+          if (isLinked) {
+            mult = 0.1
+          } else if (neighbors[ni.id].size > 0 && neighbors[nj.id].size > 0) {
+            const [small, large] = neighbors[ni.id].size <= neighbors[nj.id].size
+              ? [neighbors[ni.id], neighbors[nj.id]]
+              : [neighbors[nj.id], neighbors[ni.id]]
+            if (small.size > 0 && [...small].some(nid => large.has(nid))) {
+              mult = 4
+            }
+          }
+
+          const force = baseRepulsion * mi * mj * mult / (dist * dist + 1)
           fx += (dx / dist) * force
           fy += (dy / dist) * force
         }
 
-        links.forEach(link => {
+        for (const link of links) {
           let other: Node | undefined
-          if (link.source === nodes[i].id) {
+          if (link.source === ni.id) {
             other = nodes.find(n => n.id === link.target)
-          } else if (link.target === nodes[i].id) {
+          } else if (link.target === ni.id) {
             other = nodes.find(n => n.id === link.source)
           }
           if (other) {
-            const dx = other.x - nodes[i].x
-            const dy = other.y - nodes[i].y
-            const dist = Math.sqrt(dx * dx + dy * dy)
-            if (dist > minDistance) {
-              const force = (dist - minDistance) * attraction
-              fx += (dx / dist) * force
-              fy += (dy / dist) * force
-            }
+            const dx = other.x - ni.x
+            const dy = other.y - ni.y
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1
+            const mj = linkCounts[other.id] + 1
+            const idealLen = minLinkLen + Math.max(mi, mj) * linkLenPerMass
+            const displacement = dist - idealLen
+            const force = displacement * linkStrength
+            fx += (dx / dist) * force
+            fy += (dy / dist) * force
           }
-        })
+        }
 
-        fx += (width / 2 - nodes[i].x) * centerForce
-        fy += (height / 2 - nodes[i].y) * centerForce
+        fx += (width / 2 - ni.x) * centerForce * mi
+        fy += (height / 2 - ni.y) * centerForce * mi
 
-        nodes[i].vx = (nodes[i].vx + fx) * damping
-        nodes[i].vy = (nodes[i].vy + fy) * damping
-        nodes[i].x += nodes[i].vx
-        nodes[i].y += nodes[i].vy
+        // Soft boundary: push back when too far from center
+        const margin = Math.max(width, height) * 0.6
+        const cx = width / 2, cy = height / 2
+        const offX = ni.x - cx, offY = ni.y - cy
+        const offDist = Math.sqrt(offX * offX + offY * offY)
+        if (offDist > margin) {
+          const pull = (offDist - margin) * 0.02 * mi
+          fx -= (offX / offDist) * pull
+          fy -= (offY / offDist) * pull
+        }
 
-        nodes[i].x = Math.max(40, Math.min(width - 40, nodes[i].x))
-        nodes[i].y = Math.max(40, Math.min(height - 40, nodes[i].y))
+        ni.vx = (ni.vx + fx * alpha) * damping
+        ni.vy = (ni.vy + fy * alpha) * damping
+      }
+
+      for (let i = 0; i < nodes.length; i++) {
+        const ni = nodes[i]
+        ni.x += ni.vx
+        ni.y += ni.vy
+        // Hard clamp to prevent off-screen nodes
+        ni.x = Math.max(-200, Math.min(width + 200, ni.x))
+        ni.y = Math.max(-200, Math.min(height + 200, ni.y))
       }
 
       draw(ctx, width, height)
-      animationRef.current = requestAnimationFrame(simulate)
+      if (alpha > alphaMin) {
+        animationRef.current = requestAnimationFrame(simulate)
+      }
+    }
+
+    const drawLoop = () => {
+      const nodes = nodesRef.current
+      if (nodes.length === 0) { animationRef.current = requestAnimationFrame(drawLoop); return }
+      const canvas = canvasRef.current
+      const container = containerRef.current
+      if (canvas && container) {
+        const rect = container.getBoundingClientRect()
+        const w = rect.width || 800, h = rect.height || 500
+        if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h }
+        const ctx = canvas.getContext('2d')
+        if (ctx) draw(ctx, w, h)
+      }
+      animationRef.current = requestAnimationFrame(drawLoop)
     }
 
     simulate()
+    animationRef.current = requestAnimationFrame(drawLoop)
   }, [])
 
   const getLinkCount = (nodeId: number) => {
@@ -336,6 +430,28 @@ export default function GraphPage() {
     }
   }
 
+  const renderIndexSection = (sections: IndexSection[], title: string) => {
+    if (sections.length === 0) return null
+    return (
+      <div className="mb-4">
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">{title}</h3>
+        {sections.map(s => (
+          <div key={s.name} className="mb-2">
+            <h4 className="text-xs font-medium text-gray-500 mb-1">{s.name}</h4>
+            <div className="space-y-0.5">
+              {s.docTitles.map(t => (
+                <button key={t} onClick={() => {
+                  const found = nodesRef.current.find(n => n.title === t)
+                  if (found) navigate(`/doc/${found.id}`)
+                }} className="block text-xs text-blue-600 hover:text-blue-800 truncate w-full text-left">{t}</button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   if (loading) return (
     <div className="flex items-center justify-center h-full">
       <div className="animate-pulse flex flex-col items-center">
@@ -347,14 +463,23 @@ export default function GraphPage() {
 
   return (
     <div className="p-4 md:p-8 h-full flex flex-col" ref={containerRef}>
-      <div className="mb-6">
-        <h2 className="text-2xl font-semibold text-gray-900">知识图谱</h2>
-        <p className="text-gray-500 mt-1">
-          {stats.nodes} 个文档 · {stats.links} 个链接
-        </p>
+      <div className="mb-6 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-2xl font-semibold text-gray-900">知识图谱</h2>
+          <p className="text-gray-500 mt-1">
+            {stats.nodes} 个文档 · {stats.links} 个链接
+          </p>
+        </div>
+        <button
+          onClick={() => setShowIndex(!showIndex)}
+          className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${showIndex ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+        >
+          {showIndex ? '隐藏索引' : '知识索引'}
+        </button>
       </div>
 
-      <div className="flex-1 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden relative" style={{ minHeight: '500px', height: 'calc(100vh - 220px)' }}>
+      <div className="flex-1 flex gap-4 min-h-0">
+        <div className={`bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden relative transition-all ${showIndex ? 'flex-1' : 'w-full'}`} style={{ minHeight: '500px', height: 'calc(100vh - 220px)' }}>
         {stats.nodes === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center py-20">
             <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-2xl mb-4">
@@ -378,9 +503,6 @@ export default function GraphPage() {
                 <span className="flex items-center gap-1">
                   <span className="w-4 h-0.5 bg-amber-400" style={{ borderStyle: 'dashed' }}></span> 相同标签
                 </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-4 h-0.5 bg-green-400" style={{ borderStyle: 'dashed' }}></span> 相同分类
-                </span>
               </div>
               <p className="text-xs text-gray-400 mt-1">点击节点跳转到文档</p>
             </div>
@@ -397,6 +519,21 @@ export default function GraphPage() {
           </>
         )}
       </div>
+
+      {showIndex && indexData && (
+        <div className="w-72 shrink-0 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-y-auto">
+          <div className="p-4">
+            <h3 className="text-base font-semibold text-gray-900 mb-4">知识索引</h3>
+            {renderIndexSection(indexData.systemCategories, '系统分类')}
+            {renderIndexSection(indexData.userCategories, '个人分类')}
+            {renderIndexSection(indexData.tags, '标签')}
+            {!indexData.systemCategories.length && !indexData.userCategories.length && !indexData.tags.length && (
+              <p className="text-sm text-gray-400 text-center py-8">暂无分类或标签关联的文档</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
     </div>
   )
 }

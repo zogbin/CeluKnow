@@ -160,6 +160,34 @@ created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       }
     }
   } catch (e) { console.log('categories migration:', e) }
+
+  // Migrate categories - add is_system column
+  try {
+    const catCols2 = db.exec("PRAGMA table_info(categories)")
+    const hasIsSystem = catCols2[0]?.values?.some((row: any) => row[1] === 'is_system')
+    if (!hasIsSystem) {
+      db.run("ALTER TABLE categories ADD COLUMN is_system INTEGER DEFAULT 0")
+      saveDb()
+    }
+  } catch (e) { console.log('categories is_system migration:', e) }
+
+  // Seed system categories
+  try {
+    const existingSystem = db.exec("SELECT id, name FROM categories WHERE is_system = 1")
+    const existingSystemNames = existingSystem[0]?.values?.map((r: any) => r[1]) || []
+    const systemCatNames = ['entities', 'concepts']
+    let seeded = false
+    for (const catName of systemCatNames) {
+      if (!existingSystemNames.includes(catName)) {
+        const adminUser = db.exec("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
+        const adminId = adminUser[0]?.values?.[0]?.[0] || 1
+        db.run("INSERT INTO categories (name, user_id, color, icon, is_system) VALUES (?, ?, ?, ?, 1)",
+          [catName, adminId, '#8B5CF6', 'globe'])
+        seeded = true
+      }
+    }
+    if (seeded) saveDb()
+  } catch (e) { console.log('categories seed:', e) }
   
   // Migrate tags - add user_id column
   try {
@@ -174,6 +202,26 @@ created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       }
     }
   } catch (e) { console.log('tags migration:', e) }
+
+  // Migrate document_categories - add sort_order column
+  try {
+    const dcCols = db.exec("PRAGMA table_info(document_categories)")
+    const hasSortOrder = dcCols[0]?.values?.some((row: any) => row[1] === 'sort_order')
+    if (!hasSortOrder) {
+      db.run("ALTER TABLE document_categories ADD COLUMN sort_order INTEGER DEFAULT 0")
+      saveDb()
+    }
+  } catch (e) { console.log('dc sort_order migration:', e) }
+
+  // Migrate document_tags - add sort_order column
+  try {
+    const dtCols = db.exec("PRAGMA table_info(document_tags)")
+    const hasTagSortOrder = dtCols[0]?.values?.some((row: any) => row[1] === 'sort_order')
+    if (!hasTagSortOrder) {
+      db.run("ALTER TABLE document_tags ADD COLUMN sort_order INTEGER DEFAULT 0")
+      saveDb()
+    }
+  } catch (e) { console.log('dt sort_order migration:', e) }
 
   // Meetings table
   db.run(`

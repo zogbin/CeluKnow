@@ -36,9 +36,9 @@ export default function Home() {
 
   useEffect(() => {
     if (search.trim()) {
-      api.get(`/documents/search?q=${encodeURIComponent(search)}`).then(res => setDocs(res.data)).catch(() => {})
+      api.get(`/documents/search?q=${encodeURIComponent(search)}&excludeSystemCategories=true`).then(res => setDocs(res.data)).catch(() => {})
     } else {
-      api.get(`/documents?sort=${sort}&page=${page}&pageSize=${pageSize}${classified ? '&classified=true' : ''}`).then(res => {
+      api.get(`/documents?sort=${sort}&page=${page}&pageSize=${pageSize}${classified ? '&classified=true' : ''}&excludeSystemCategories=true`).then(res => {
         setDocs(res.data.docs || [])
         setTotal(res.data.total || 0)
       }).catch(() => {})

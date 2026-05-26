@@ -13,6 +13,10 @@ export default defineConfig({
       '/api': {
         target: backendUrl,
         changeOrigin: true
+      },
+      '/uploads': {
+        target: backendUrl,
+        changeOrigin: true
       }
     }
   }
