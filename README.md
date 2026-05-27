@@ -22,7 +22,7 @@ CeluKnow 是一个轻量化的本地知识分享系统，支持 Markdown 文档�
 - **Front Matter** - 支持 YAML 头部元数据（title、category、tags、visibility、author、created、updated）
 - **拖拽归类** - 拖拽文档到分类文件夹
 - **评论系统** - 支持发表评论、回复评论、添加表情
-- **全文搜索** - 快速检索文档标题和内容
+- **全文搜索** - FTS5 BM25 全文索引，毫秒级搜索，中文支持
 - **批量操作** - 批量删除文档、点赞、评论
 - **个人中心** - 统一管理我的文档、点赞、评论，支持修改密码和昵称
 - **CLI工具集** - 支持通过AI工具调用的login, import, export, search, list, get, delete
@@ -109,7 +109,8 @@ celuknow/
 ## 技术栈
 
 - **前端**: React 18 + TypeScript + TailwindCSS + Vite
-- **后端**: Node.js + Express + sql.js (SQLite)
+- **后端**: Node.js + Express + node:sqlite® (SQLite + FTS5 BM25)
+- **搜索引擎**: SQLite FTS5 全文索引（unicode61 中文分词，BM25 排序）
 - **认证**: JWT + bcrypt
 
 ## CLI 工具
@@ -152,18 +153,77 @@ celuknow delete 1 --force         # 删除文档
 | 命令 | 说明 |
 |------|------|
 | `login` | 用户登录获取 token |
+| `query <text>` | **深度查询**（FTS5 BM25 排序，推荐） |
+| `get <id>` | 获取文档详情（支持 `--related`） |
+| `search <keyword>` | 搜索文档（旧版 LIKE 搜索） |
 | `list` | 列出所有文档 |
-| `search <keyword>` | 搜索文档 |
-| `get <id>` | 获取文档详情 |
+| `index` | 知识索引概览（分类、标签） |
 | `import <file>` | 导入 Markdown 文件或目录 |
 | `export` | 导出所有文档为 ZIP |
 | `delete <id>` | 删除文档 |
+
+### 深度查询 `query` 选项
+
+| 选项 | 说明 | 默认 |
+|------|------|------|
+| `-l, --limit <n>` | 最大结果数 | 10 |
+| `--full` | 返回完整文档内容 | false |
+| `--related` | 返回关联文档（同分类） | false |
+| `--explain` | 显示 FTS5 BM25 评分明细 | false |
+| `--min-score <n>` | 最低分数阈值 | 0 |
+| `--json` | JSON 格式输出（AI 消费用） | false |
+| `--md` | Markdown 格式输出 | false |
+
+### 全局选项
 
 所有命令支持以下全局选项：
 - `-s, --server <url>` - 服务端地址
 - `-t, --token <token>` - 认证 token
 
 也可以通过环境变量 `CELUKNOW_SERVER` 和 `CELUKNOW_TOKEN` 设置。
+
+## AI Agent 集成
+
+CeluKnow 专为 AI 智能体设计，支持一键接入 Claude Code、OpenClaw、Hermes 等框架。
+
+### CLAUDE.md（自动加载）
+
+项目根目录的 [`CLAUDE.md`](CLAUDE.md) 会被 Claude Code / OpenClaw 自动识别，提供完整的工具使用指南。
+
+### 一键接入
+
+```bash
+# 1. 安装 CLI 工具
+cd cli && npm install && npm run build
+
+# 2. 设置环境变量
+export CELUKNOW_SERVER=http://localhost:3001
+export CELUKNOW_TOKEN=<登录获取>
+
+# 3. AI 直接调用
+celuknow query "搜索词" --full --json    # 返回结构化 JSON
+celuknow index --json                     # 查看知识结构
+```
+
+### 输出格式（JSON）
+
+查询结果可直接被 AI 解析：
+
+```json
+{
+  "query": "搜索词",
+  "total": 5,
+  "results": [{
+    "id": 1,
+    "title": "文档标题",
+    "score": 1.02,
+    "content": "完整内容",
+    "explain": { "method": "FTS5 BM25" }
+  }]
+}
+```
+
+详细集成指南见 [`docs/AI_AGENTS.md`](docs/AI_AGENTS.md)。
 
 ## API 端点
 

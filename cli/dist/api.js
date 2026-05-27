@@ -40,4 +40,37 @@ export class CeluKnowAPI {
         const res = await this.client.get('/import-export/export');
         return res.data;
     }
+    async getKnowledgeIndex() {
+        const res = await this.client.get('/documents/knowledge-index');
+        return res.data;
+    }
+    async getGraph() {
+        const res = await this.client.get('/documents/graph');
+        return res.data;
+    }
+    async getCategoryDocuments(categoryId) {
+        const res = await this.client.get(`/categories/${categoryId}/documents`);
+        return res.data;
+    }
+    async getDocumentCategories(docId) {
+        const res = await this.client.get(`/categories/document/${docId}`);
+        return res.data;
+    }
+    async queryDocuments(options) {
+        const params = { q: options.q };
+        if (options.limit)
+            params.limit = options.limit;
+        if (options.offset)
+            params.offset = options.offset;
+        if (options.min_score)
+            params.min_score = options.min_score;
+        if (options.full)
+            params.full = 'true';
+        if (options.related)
+            params.related = 'true';
+        if (options.explain)
+            params.explain = 'true';
+        const res = await this.client.get('/documents/query', { params });
+        return res.data;
+    }
 }

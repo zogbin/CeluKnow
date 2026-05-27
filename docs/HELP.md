@@ -284,14 +284,75 @@ celuknow delete 1 --force        # 删除文档
 | 命令 | 说明 | 示例 |
 |------|------|------|
 | `login` | 用户登录获取 token | `celuknow login -u admin -p 123456` |
+| `query <text>` | **深度查询**（FTS5 BM25 排序，推荐） | `celuknow query "教程" --full --json` |
+| `index` | 知识索引概览 | `celuknow index --json` |
+| `get <id>` | 获取文档详情 | `celuknow get 123 --related` |
+| `search <text>` | 搜索文档（旧版 LIKE 搜索） | `celuknow search "教程" --limit 10` |
 | `list` | 列出文档 | `celuknow list --limit 20` |
-| `search` | 搜索文档 | `celuknow search "教程" --limit 10` |
-| `get` | 获取文档详情 | `celuknow get 123` |
 | `import` | 导入 Markdown | `celuknow import ./docs --category 技术` |
 | `export` | 导出为 ZIP | `celuknow export -o ./backup` |
 | `delete` | 删除文档 | `celuknow delete 123 --force` |
 
-### 选项说明
+### `query` 命令详解
+
+`celuknow query` 使用 SQLite FTS5 BM25 全文索引进行毫秒级搜索，支持中文分词和相关性排序。
+
+**选项：**
+
+| 选项 | 说明 | 默认 |
+|------|------|------|
+| `-l, --limit <n>` | 最大结果数 | 10 |
+| `--full` | 返回完整文档内容 | false |
+| `--related` | 返回关联文档（同分类） | false |
+| `--explain` | 显示 FTS5 BM25 评分明细 | false |
+| `--min-score <n>` | 最低分数阈值 | 0 |
+| `--json` | JSON 格式输出 | false |
+| `--md` | Markdown 格式输出 | false |
+
+**使用示例：**
+
+```bash
+# AI 消费用：搜索 + 完整内容 + JSON
+celuknow query "机器学习" -l 5 --full --json
+
+# 探索用：搜索 + 关联内容
+celuknow query "项目规划" --related
+
+# 精确用：高阈值过滤
+celuknow query "错误处理" --min-score 1.0
+
+# 诊断用：看为什么匹配
+celuknow query "API设计" --explain
+
+# 展示用：Markdown 输出
+celuknow query "架构设计" -l 3 --md
+```
+
+**输出示例（JSON）：**
+
+```json
+{
+  "query": "机器学习",
+  "total": 3,
+  "results": [
+    {
+      "id": 7,
+      "title": "机器学习入门",
+      "score": 1.52,
+      "snippet": "内容摘要...",
+      "content": "完整内容（有 --full 时）",
+      "tags": "AI,教程",
+      "category_names": "技术",
+      "explain": {
+        "method": "FTS5 BM25",
+        "query": "机器学习"
+      }
+    }
+  ]
+}
+```
+
+### 全局选项
 
 所有命令支持以下全局选项：
 - `-s, --server <url>` - 服务端地址

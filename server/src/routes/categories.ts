@@ -88,7 +88,7 @@ router.get('/:id/documents', authMiddleware, (req: AuthRequest, res: Response) =
 router.post('/:docId/categories', authMiddleware, (req: AuthRequest, res: Response) => {
   const { category_ids } = req.body;
   const docId = req.params.docId;
-  const docs = run('SELECT * FROM documents WHERE id = ? AND (visibility = "public" OR author_id = ?)', [docId, req.user!.id]) as any[];
+  const docs = run("SELECT * FROM documents WHERE id = ? AND (visibility = 'public' OR author_id = ?)", [docId, req.user!.id]) as any[];
   if (docs.length === 0) {
     return res.status(404).json({ error: '文档不存在' });
   }
@@ -114,7 +114,7 @@ router.post('/:docId/categories', authMiddleware, (req: AuthRequest, res: Respon
 router.delete('/:docId/categories/:categoryId', authMiddleware, (req: AuthRequest, res: Response) => {
   const docId = req.params.docId;
   const categoryId = req.params.categoryId;
-  const docs = run('SELECT * FROM documents WHERE id = ? AND (visibility = "public" OR author_id = ?)', [docId, req.user!.id]) as any[];
+  const docs = run("SELECT * FROM documents WHERE id = ? AND (visibility = 'public' OR author_id = ?)", [docId, req.user!.id]) as any[];
   if (docs.length === 0) {
     return res.status(404).json({ error: '文档不存在' });
   }

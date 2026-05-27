@@ -101,7 +101,7 @@ router.put('/help', authMiddleware, (req: AuthRequest, res: Response) => {
   const { content } = req.body;
   const docs = run('SELECT id FROM documents WHERE title = ? AND author_id = ?', ['使用帮助', req.user!.id]);
   if (docs.length > 0) {
-    runUpdate('UPDATE documents SET content = ?, updated_at = datetime("now") WHERE id = ?', [content, docs[0].id]);
+    runUpdate("UPDATE documents SET content = ?, updated_at = datetime('now') WHERE id = ?", [content, docs[0].id]);
     res.json({ success: true });
   } else {
     res.status(404).json({ error: '文档不存在' });
@@ -180,6 +180,139 @@ router.get('/search', authMiddleware, (req: AuthRequest, res: Response) => {
   res.json(results);
 });
 
+router.get('/query', authMiddleware, (req: AuthRequest, res: Response) => {
+  const userId = req.user!.id;
+  const { q, limit: limitParam, offset: offsetParam, min_score, full, related, explain: explainParam } = req.query;
+  if (!q) {
+    return res.status(400).json({ error: '请提供搜索关键词 q' });
+  }
+
+  const limit = Math.min(parseInt(limitParam as string) || 10, 100);
+  const offset = parseInt(offsetParam as string) || 0;
+  const minScore = parseFloat(min_score as string) || 0;
+  const includeFull = full === 'true';
+  const includeRelated = related === 'true';
+  const includeExplain = explainParam === 'true';
+
+  try {
+    const ftsQuery = (q as string).replace(/[^\w\u4e00-\u9fff\s\-*"']/g, ' ').trim();
+    if (!ftsQuery) {
+      return res.json({ query: q, total: 0, results: [] });
+    }
+
+    const countResult = run(`
+      SELECT COUNT(*) as total FROM (
+        SELECT 1 FROM documents_fts, documents d
+        WHERE documents_fts MATCH ? AND documents_fts.rowid = d.id AND (d.visibility = 'public' OR d.author_id = ?)
+      )
+    `, [ftsQuery, userId]);
+    const total = countResult[0]?.total || 0;
+
+    type ScoreRow = { rowid: number; score: number };
+    const scored = run(`
+      SELECT rowid, -rank as score FROM documents_fts
+      WHERE documents_fts MATCH ?
+      ORDER BY score DESC
+      LIMIT ? OFFSET ?
+    `, [ftsQuery, limit, offset]) as ScoreRow[];
+
+    if (scored.length === 0) {
+      return res.json({ query: q, total: 0, results: [] });
+    }
+
+    const ids = scored.map(r => r.rowid);
+    const idParams = ids.map(() => '?').join(',');
+
+    const rows = run(`
+      SELECT d.id, d.title${includeFull ? ', d.content' : ''}, d.author_id,
+        d.visibility, d.created_at, d.updated_at,
+        u.username as author_name,
+        GROUP_CONCAT(t.name) as tags,
+        GROUP_CONCAT(DISTINCT c.id) as category_ids,
+        GROUP_CONCAT(DISTINCT c.name) as category_names,
+        COALESCE((SELECT COUNT(*) FROM document_views WHERE document_id = d.id), 0) as view_count,
+        COALESCE((SELECT COUNT(*) FROM comments WHERE document_id = d.id), 0) as comment_count
+      FROM documents d
+      LEFT JOIN users u ON d.author_id = u.id
+      LEFT JOIN document_tags dt ON d.id = dt.document_id
+      LEFT JOIN tags t ON dt.tag_id = t.id AND t.user_id = ?
+      LEFT JOIN document_categories dc ON d.id = dc.document_id
+      LEFT JOIN categories c ON dc.category_id = c.id AND (c.user_id = ? OR c.is_system = 1)
+      WHERE d.id IN (${idParams}) AND (d.visibility = 'public' OR d.author_id = ?)
+      GROUP BY d.id
+    `, [userId, userId, ...ids, userId]) as any[];
+
+    const scoreMap = new Map(scored.map(r => [r.rowid, r.score]));
+    const output: any[] = [];
+
+    for (const row of rows) {
+      const entry: any = {
+        id: row.id,
+        title: row.title,
+        score: scoreMap.get(row.id) || 0,
+        author_name: row.author_name,
+        tags: row.tags || null,
+        category_ids: row.category_ids || null,
+        category_names: row.category_names || null,
+        view_count: row.view_count,
+        comment_count: row.comment_count,
+      };
+
+      if (!row.content) {
+        const contentRow = run('SELECT content FROM documents WHERE id = ?', [row.id]) as any[];
+        const content = (contentRow[0]?.content || '');
+        if (!includeFull) {
+          entry.snippet = content.length > 300 ? content.substring(0, 300) + '...' : content;
+        } else {
+          entry.content = content;
+        }
+      } else {
+        if (!includeFull) {
+          entry.snippet = row.content.length > 300 ? row.content.substring(0, 300) + '...' : row.content;
+        } else {
+          entry.content = row.content;
+        }
+      }
+
+      if (includeExplain) {
+        entry.explain = {
+          method: 'FTS5 BM25',
+          query: ftsQuery,
+          raw_rank: -entry.score,
+        };
+      }
+
+      if (includeRelated && entry.category_ids) {
+        const catIds = (entry.category_ids as string).split(',').map(Number);
+        const catNames = entry.category_names ? (entry.category_names as string).split(',') : [];
+        const sameCat: { id: number; title: string; category: string }[] = [];
+
+        for (let i = 0; i < catIds.length; i++) {
+          const catDocs = run(`
+            SELECT DISTINCT d.id, d.title FROM documents d
+            JOIN document_categories dc ON d.id = dc.document_id
+            WHERE dc.category_id = ? AND d.id != ? AND (d.visibility = 'public' OR d.author_id = ?)
+            LIMIT 5
+          `, [catIds[i], row.id, userId]) as any[];
+          for (const cd of catDocs) {
+            sameCat.push({ id: cd.id, title: cd.title, category: catNames[i] || '' });
+          }
+        }
+
+        entry.related = { same_category: sameCat, wiki_links: [] };
+      }
+
+      output.push(entry);
+    }
+
+    output.sort((a, b) => (b.score || 0) - (a.score || 0));
+
+    res.json({ query: q, total, results: output });
+  } catch (e: any) {
+    res.status(500).json({ error: '搜索失败', detail: e.message });
+  }
+});
+
 router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
   const userId = req.user!.id;
   const sort = req.query.sort || 'updated_at';
@@ -249,12 +382,11 @@ router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
 
 router.get('/graph', authMiddleware, (req: AuthRequest, res: Response) => {
   const userId = req.user!.id
-  const docs = run('SELECT id, title FROM documents WHERE visibility = "public" OR author_id = ?', [userId]) as any[];
-  const allDocs = run('SELECT id, content FROM documents WHERE visibility = "public" OR author_id = ?', [userId]) as any[];
+  const docs = run("SELECT id, title FROM documents WHERE visibility = 'public' OR author_id = ?", [userId]) as any[];
+  const allDocs = run("SELECT id, content FROM documents WHERE visibility = 'public' OR author_id = ?", [userId]) as any[];
+  // Only keep [[wiki link]] edges — tag/category edges create too much noise
   const links: any[] = [];
   const linkSet = new Set<string>();
-  
-  // Link by [[document title]] syntax
   for (const doc of allDocs) {
     const matches = (doc.content || '').match(/\[\[([^\]]+)\]\]/g) || [];
     for (const match of matches) {
@@ -264,34 +396,7 @@ router.get('/graph', authMiddleware, (req: AuthRequest, res: Response) => {
         const key = `${Math.min(doc.id, target.id)}-${Math.max(doc.id, target.id)}`
         if (!linkSet.has(key)) {
           linkSet.add(key)
-          links.push({ source: doc.id, target: target.id, type: 'link' });
-        }
-      }
-    }
-  }
-  
-  // Link by shared tags
-  const docTags = run(`
-    SELECT dt.document_id, t.name as tag_name
-    FROM document_tags dt
-    JOIN tags t ON dt.tag_id = t.id
-    WHERE dt.document_id IN (SELECT id FROM documents WHERE visibility = 'public' OR author_id = ?)
-  `, [userId]) as any[];
-  
-  const tagDocs: Record<string, number[]> = {}
-  for (const dt of docTags) {
-    if (!tagDocs[dt.tag_name]) tagDocs[dt.tag_name] = []
-    tagDocs[dt.tag_name].push(dt.document_id)
-  }
-  
-  for (const tagName in tagDocs) {
-    const docIds = tagDocs[tagName]
-    for (let i = 0; i < docIds.length; i++) {
-      for (let j = i + 1; j < docIds.length; j++) {
-        const key = `${Math.min(docIds[i], docIds[j])}-${Math.max(docIds[i], docIds[j])}`
-        if (!linkSet.has(key)) {
-          linkSet.add(key)
-          links.push({ source: docIds[i], target: docIds[j], type: 'tag', label: tagName })
+          links.push({ source: doc.id, target: target.id, type: 'link', label: '[[引用]]' });
         }
       }
     }
@@ -311,8 +416,14 @@ router.get('/graph', authMiddleware, (req: AuthRequest, res: Response) => {
   }
   
   // Per-node tags (for secondary coloring)
+  const docTagsForMeta = run(`
+    SELECT dt.document_id, t.name as tag_name
+    FROM document_tags dt
+    JOIN tags t ON dt.tag_id = t.id
+    WHERE dt.document_id IN (SELECT id FROM documents WHERE visibility = 'public' OR author_id = ?)
+  `, [userId]) as any[];
   const nodeTagsMap: Record<number, string[]> = {};
-  for (const dt of docTags) {
+  for (const dt of docTagsForMeta) {
     if (!nodeTagsMap[dt.document_id]) nodeTagsMap[dt.document_id] = [];
     nodeTagsMap[dt.document_id].push(dt.tag_name);
   }
@@ -448,8 +559,9 @@ router.delete('/:id', authMiddleware, (req: AuthRequest, res: Response) => {
   if (req.user!.role !== 'admin' && doc.author_id !== req.user!.id) {
     return res.status(403).json({ error: '权限不足' });
   }
+  runUpdate('DELETE FROM document_versions WHERE document_id = ?', [req.params.id]);
   runUpdate('DELETE FROM documents WHERE id = ?', [req.params.id]);
-  storage.deleteDocument(doc.folder_path, doc.title);
+  try { storage.deleteDocument(doc.folder_path, doc.title); } catch {}
   rebuildUserIndex(req.user!.id);
   res.json({ success: true });
 });

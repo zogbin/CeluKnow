@@ -22,8 +22,8 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-async function main() {
-  await initDb();
+function main() {
+  initDb();
   console.log('Database initialized');
 
   app.use('/api/auth', authRouter);
@@ -59,6 +59,6 @@ async function main() {
   });
 }
 
-main().catch(console.error);
+main();
 
 export default app;

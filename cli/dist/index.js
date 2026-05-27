@@ -7,6 +7,8 @@ import { searchCommand } from './commands/search.js';
 import { listCommand } from './commands/list.js';
 import { getCommand } from './commands/get.js';
 import { deleteCommand } from './commands/delete.js';
+import { queryCommand } from './commands/query.js';
+import { indexCommand } from './commands/index.js';
 const program = new Command();
 program
     .name('celuknow')
@@ -21,4 +23,6 @@ program.addCommand(searchCommand);
 program.addCommand(listCommand);
 program.addCommand(getCommand);
 program.addCommand(deleteCommand);
+program.addCommand(queryCommand);
+program.addCommand(indexCommand);
 program.parse();

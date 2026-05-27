@@ -92,7 +92,7 @@ router.put('/:id/reorder', authMiddleware, (req: AuthRequest, res: Response) => 
 router.post('/:docId/tags', authMiddleware, (req: AuthRequest, res: Response) => {
   const { tag_ids } = req.body;
   const docId = req.params.docId;
-  const docs = run('SELECT * FROM documents WHERE id = ? AND (visibility = "public" OR author_id = ?)', [docId, req.user!.id]);
+  const docs = run("SELECT * FROM documents WHERE id = ? AND (visibility = 'public' OR author_id = ?)", [docId, req.user!.id]);
   if (docs.length === 0) {
     return res.status(404).json({ error: '文档不存在' });
   }
@@ -109,7 +109,7 @@ router.post('/:docId/tags', authMiddleware, (req: AuthRequest, res: Response) =>
 
 router.delete('/:docId/tags/:tagId', authMiddleware, (req: AuthRequest, res: Response) => {
   const docId = req.params.docId;
-  const docs = run('SELECT * FROM documents WHERE id = ? AND (visibility = "public" OR author_id = ?)', [docId, req.user!.id]);
+  const docs = run("SELECT * FROM documents WHERE id = ? AND (visibility = 'public' OR author_id = ?)", [docId, req.user!.id]);
   if (docs.length === 0) {
     return res.status(404).json({ error: '文档不存在' });
   }

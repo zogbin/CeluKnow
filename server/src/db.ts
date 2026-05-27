@@ -1,361 +1,298 @@
-import initSqlJs, { Database } from 'sql.js';
 import path from 'path';
 import fs from 'fs';
+
+const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: any };
 
 const dataDir = path.join(__dirname, '../../data');
 const dbPath = path.join(dataDir, 'knowledge.db');
 
-let db: Database;
+let db: any;
 
-export async function initDb(): Promise<Database> {
-  const SQL = await initSqlJs();
-  
+const SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    nickname TEXT DEFAULT '',
+    password_hash TEXT NOT NULL,
+    role TEXT DEFAULT 'viewer' CHECK(role IN ('admin', 'editor', 'viewer')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    folder_path TEXT DEFAULT '/',
+    content TEXT,
+    author_id INTEGER NOT NULL,
+    visibility TEXT DEFAULT 'private' CHECK(visibility IN ('public', 'private')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (author_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS document_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    author_id INTEGER NOT NULL,
+    message TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (document_id) REFERENCES documents(id),
+    FOREIGN KEY (author_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    UNIQUE(name, user_id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS document_tags (
+    document_id INTEGER NOT NULL,
+    tag_id INTEGER NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    PRIMARY KEY (document_id, tag_id),
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    color TEXT DEFAULT '#6366F1',
+    icon TEXT DEFAULT 'folder',
+    is_system INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(name, user_id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS document_categories (
+    document_id INTEGER NOT NULL,
+    category_id INTEGER NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    PRIMARY KEY (document_id, category_id),
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    parent_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (parent_id) REFERENCES comments(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS likes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(document_id, user_id),
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS document_views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    viewed_at DATE DEFAULT (date('now')),
+    UNIQUE(document_id, user_id, viewed_at),
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS meetings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    agenda TEXT,
+    meeting_date DATETIME NOT NULL,
+    meeting_end DATETIME NOT NULL,
+    location TEXT,
+    organizer_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (organizer_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS meeting_agendas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    meeting_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS meeting_materials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    meeting_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    file_path TEXT,
+    file_type TEXT,
+    description TEXT,
+    content TEXT,
+    uploader_id INTEGER NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    parent_id INTEGER REFERENCES meeting_materials(id) ON DELETE CASCADE,
+    is_folder INTEGER DEFAULT 0,
+    agenda_id INTEGER REFERENCES meeting_agendas(id) ON DELETE SET NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
+    FOREIGN KEY (uploader_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS meeting_attendees (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    meeting_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(meeting_id, user_id),
+    FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+`;
+
+export function initDb(): void {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }
-  
-  if (fs.existsSync(dbPath)) {
-    const fileBuffer = fs.readFileSync(dbPath);
-    db = new SQL.Database(fileBuffer);
-  } else {
-    db = new SQL.Database();
+
+  const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: any };
+  db = new DatabaseSync(dbPath);
+
+  db.exec('PRAGMA journal_mode=WAL');
+  db.exec('PRAGMA synchronous=NORMAL');
+  db.exec('PRAGMA foreign_keys=ON');
+
+  db.exec(SCHEMA_SQL);
+
+  runMigrations();
+  ensureFTS5();
+}
+
+function hasColumn(table: string, column: string): boolean {
+  try {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as any[];
+    return cols.some((c: any) => c.name === column);
+  } catch { return false; }
+}
+
+function runMigrations(): void {
+  const migs: [string, string, string?][] = [
+    ['comments', 'parent_id', 'INTEGER REFERENCES comments(id) ON DELETE CASCADE'],
+    ['users', 'nickname', "TEXT DEFAULT ''"],
+    ['documents', 'visibility', "TEXT DEFAULT 'private'"],
+  ];
+  for (const [table, col, colType] of migs) {
+    if (!hasColumn(table, col)) {
+      try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${colType}`); } catch {}
+    }
+  }
+
+  if (!hasColumn('categories', 'user_id')) {
+    try {
+      db.exec("ALTER TABLE categories ADD COLUMN user_id INTEGER");
+      const userResult = db.prepare("SELECT id FROM users LIMIT 1").all() as any[];
+      if (userResult.length > 0) {
+        db.prepare("UPDATE categories SET user_id = ? WHERE user_id IS NULL").run(userResult[0].id);
+      }
+    } catch (e) { console.log('categories user_id migration:', e); }
+  }
+
+  if (!hasColumn('categories', 'is_system')) {
+    try { db.exec("ALTER TABLE categories ADD COLUMN is_system INTEGER DEFAULT 0"); } catch (e) { console.log('categories is_system migration:', e); }
   }
 
   try {
-    db.run("ALTER TABLE comments ADD COLUMN parent_id INTEGER REFERENCES comments(id) ON DELETE CASCADE");
-  } catch (e) {}
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      nickname TEXT DEFAULT '',
-      password_hash TEXT NOT NULL,
-      role TEXT DEFAULT 'viewer' CHECK(role IN ('admin', 'editor', 'viewer')),
-created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-  try { db.run("ALTER TABLE users ADD COLUMN nickname TEXT DEFAULT ''") } catch {}
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS documents (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      folder_path TEXT DEFAULT '/',
-      content TEXT,
-      author_id INTEGER NOT NULL,
-      visibility TEXT DEFAULT 'private' CHECK(visibility IN ('public', 'private')),
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (author_id) REFERENCES users(id)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS document_versions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      document_id INTEGER NOT NULL,
-      content TEXT NOT NULL,
-      author_id INTEGER NOT NULL,
-      message TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (document_id) REFERENCES documents(id),
-      FOREIGN KEY (author_id) REFERENCES users(id)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS tags (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      user_id INTEGER NOT NULL,
-      UNIQUE(name, user_id),
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS document_tags (
-      document_id INTEGER NOT NULL,
-      tag_id INTEGER NOT NULL,
-      PRIMARY KEY (document_id, tag_id),
-      FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
-      FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS categories (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      user_id INTEGER NOT NULL,
-      color TEXT DEFAULT '#6366F1',
-      icon TEXT DEFAULT 'folder',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(name, user_id),
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS document_categories (
-      document_id INTEGER NOT NULL,
-      category_id INTEGER NOT NULL,
-      PRIMARY KEY (document_id, category_id),
-      FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
-      FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS comments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      document_id INTEGER NOT NULL,
-      user_id INTEGER NOT NULL,
-      content TEXT NOT NULL,
-      parent_id INTEGER,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id),
-      FOREIGN KEY (parent_id) REFERENCES comments(id) ON DELETE CASCADE
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS likes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      document_id INTEGER NOT NULL,
-      user_id INTEGER NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(document_id, user_id),
-      FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS document_views (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      document_id INTEGER NOT NULL,
-      user_id INTEGER NOT NULL,
-      viewed_at DATE DEFAULT (date('now')),
-      UNIQUE(document_id, user_id, viewed_at),
-      FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `);
-
-  try { db.run("ALTER TABLE documents ADD COLUMN visibility TEXT DEFAULT 'private'") } catch {}
-  
-  // Migrate categories - add user_id column
-  try {
-    const catCols = db.exec("PRAGMA table_info(categories)")
-    const hasUserId = catCols[0]?.values?.some((row: any) => row[1] === 'user_id')
-    if (!hasUserId) {
-      db.run("ALTER TABLE categories ADD COLUMN user_id INTEGER")
-      const userResult = db.exec("SELECT id FROM users LIMIT 1")
-      if (userResult[0]?.values?.length > 0) {
-        const firstUserId = userResult[0].values[0][0]
-        db.run("UPDATE categories SET user_id = ? WHERE user_id IS NULL", [firstUserId])
-      }
-    }
-  } catch (e) { console.log('categories migration:', e) }
-
-  // Migrate categories - add is_system column
-  try {
-    const catCols2 = db.exec("PRAGMA table_info(categories)")
-    const hasIsSystem = catCols2[0]?.values?.some((row: any) => row[1] === 'is_system')
-    if (!hasIsSystem) {
-      db.run("ALTER TABLE categories ADD COLUMN is_system INTEGER DEFAULT 0")
-      saveDb()
-    }
-  } catch (e) { console.log('categories is_system migration:', e) }
-
-  // Seed system categories
-  try {
-    const existingSystem = db.exec("SELECT id, name FROM categories WHERE is_system = 1")
-    const existingSystemNames = existingSystem[0]?.values?.map((r: any) => r[1]) || []
-    const systemCatNames = ['entities', 'concepts']
-    let seeded = false
-    for (const catName of systemCatNames) {
+    const existingSystem = db.prepare("SELECT id, name FROM categories WHERE is_system = 1").all() as any[];
+    const existingSystemNames = existingSystem.map((r: any) => r.name);
+    for (const catName of ['entities', 'concepts']) {
       if (!existingSystemNames.includes(catName)) {
-        const adminUser = db.exec("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
-        const adminId = adminUser[0]?.values?.[0]?.[0] || 1
-        db.run("INSERT INTO categories (name, user_id, color, icon, is_system) VALUES (?, ?, ?, ?, 1)",
-          [catName, adminId, '#8B5CF6', 'globe'])
-        seeded = true
+        const adminUser = db.prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1").all() as any[];
+        const adminId = adminUser[0]?.id || 1;
+        db.prepare("INSERT INTO categories (name, user_id, color, icon, is_system) VALUES (?, ?, ?, ?, 1)").run(catName, adminId, '#8B5CF6', 'globe');
       }
     }
-    if (seeded) saveDb()
-  } catch (e) { console.log('categories seed:', e) }
-  
-  // Migrate tags - add user_id column
-  try {
-    const tagCols = db.exec("PRAGMA table_info(tags)")
-    const tagHasUserId = tagCols[0]?.values?.some((row: any) => row[1] === 'user_id')
-    if (!tagHasUserId) {
-      db.run("ALTER TABLE tags ADD COLUMN user_id INTEGER")
-      const userResult = db.exec("SELECT id FROM users LIMIT 1")
-      if (userResult[0]?.values?.length > 0) {
-        const firstUserId = userResult[0].values[0][0]
-        db.run("UPDATE tags SET user_id = ? WHERE user_id IS NULL", [firstUserId])
+  } catch (e) { console.log('categories seed:', e); }
+
+  if (!hasColumn('tags', 'user_id')) {
+    try {
+      db.exec("ALTER TABLE tags ADD COLUMN user_id INTEGER");
+      const userResult = db.prepare("SELECT id FROM users LIMIT 1").all() as any[];
+      if (userResult.length > 0) {
+        db.prepare("UPDATE tags SET user_id = ? WHERE user_id IS NULL").run(userResult[0].id);
       }
+    } catch (e) { console.log('tags migration:', e); }
+  }
+
+  for (const [table, col] of [['document_categories', 'sort_order'], ['document_tags', 'sort_order']]) {
+    if (!hasColumn(table, col)) {
+      try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} INTEGER DEFAULT 0`); } catch (e) { console.log(`${table} migration:`, e); }
     }
-  } catch (e) { console.log('tags migration:', e) }
+  }
 
-  // Migrate document_categories - add sort_order column
-  try {
-    const dcCols = db.exec("PRAGMA table_info(document_categories)")
-    const hasSortOrder = dcCols[0]?.values?.some((row: any) => row[1] === 'sort_order')
-    if (!hasSortOrder) {
-      db.run("ALTER TABLE document_categories ADD COLUMN sort_order INTEGER DEFAULT 0")
-      saveDb()
-    }
-  } catch (e) { console.log('dc sort_order migration:', e) }
-
-  // Migrate document_tags - add sort_order column
-  try {
-    const dtCols = db.exec("PRAGMA table_info(document_tags)")
-    const hasTagSortOrder = dtCols[0]?.values?.some((row: any) => row[1] === 'sort_order')
-    if (!hasTagSortOrder) {
-      db.run("ALTER TABLE document_tags ADD COLUMN sort_order INTEGER DEFAULT 0")
-      saveDb()
-    }
-  } catch (e) { console.log('dt sort_order migration:', e) }
-
-  // Meetings table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS meetings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      description TEXT,
-      agenda TEXT,
-      meeting_date DATETIME NOT NULL,
-      meeting_end DATETIME NOT NULL,
-      location TEXT,
-      organizer_id INTEGER NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (organizer_id) REFERENCES users(id)
-    )
-  `)
-
-  try {
-    const mtCols = db.exec("PRAGMA table_info(meetings)")
-    const hasEnd = mtCols[0]?.values?.some((row: any) => row[1] === 'meeting_end')
-    if (!hasEnd) {
-      db.run("ALTER TABLE meetings ADD COLUMN meeting_end DATETIME")
-    }
-  } catch (e) { console.log('meetings migration:', e) }
-
-  // Agendas table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS meeting_agendas (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      meeting_id INTEGER NOT NULL,
-      title TEXT NOT NULL,
-      sort_order INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
-    )
-  `)
-
-  // Meeting materials table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS meeting_materials (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      meeting_id INTEGER NOT NULL,
-      title TEXT NOT NULL,
-      file_path TEXT,
-      file_type TEXT,
-      description TEXT,
-      content TEXT,
-      uploader_id INTEGER NOT NULL,
-      sort_order INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
-      FOREIGN KEY (uploader_id) REFERENCES users(id)
-    )
-  `)
-
-  try {
-    const mmCols = db.exec("PRAGMA table_info(meeting_materials)")
-    const hasContent = mmCols[0]?.values?.some((row: any) => row[1] === 'content')
-    if (!hasContent) {
-      db.run("ALTER TABLE meeting_materials ADD COLUMN content TEXT")
-    }
-    const hasParentId = mmCols[0]?.values?.some((row: any) => row[1] === 'parent_id')
-    if (!hasParentId) {
-      db.run("ALTER TABLE meeting_materials ADD COLUMN parent_id INTEGER REFERENCES meeting_materials(id) ON DELETE CASCADE")
-    }
-    const hasIsFolder = mmCols[0]?.values?.some((row: any) => row[1] === 'is_folder')
-    if (!hasIsFolder) {
-      db.run("ALTER TABLE meeting_materials ADD COLUMN is_folder INTEGER DEFAULT 0")
-    }
-    const hasAgendaId = mmCols[0]?.values?.some((row: any) => row[1] === 'agenda_id')
-    if (!hasAgendaId) {
-      db.run("ALTER TABLE meeting_materials ADD COLUMN agenda_id INTEGER REFERENCES meeting_agendas(id) ON DELETE SET NULL")
-    }
-  } catch (e) { console.log('meeting_materials migration:', e) }
-
-  try {
-    const mmCols = db.exec("PRAGMA table_info(meeting_materials)")
-    const hasOrder = mmCols[0]?.values?.some((row: any) => row[1] === 'sort_order')
-    if (!hasOrder) {
-      db.run("ALTER TABLE meeting_materials ADD COLUMN sort_order INTEGER DEFAULT 0")
-    }
-  } catch (e) { console.log('meeting_materials migration:', e) }
-
-  // Meeting attendees table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS meeting_attendees (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      meeting_id INTEGER NOT NULL,
-      user_id INTEGER NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(meeting_id, user_id),
-      FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `)
-
-  return db;
-}
-
-export function saveDb() {
-  if (db) {
-    const data = db.export();
-    const buffer = Buffer.from(data);
-    fs.writeFileSync(dbPath, buffer);
+  if (!hasColumn('meetings', 'meeting_end')) {
+    try { db.exec('ALTER TABLE meetings ADD COLUMN meeting_end DATETIME'); } catch (e) { console.log('meetings migration:', e); }
   }
 }
 
-export function getDb(): Database {
-  if (!db) {
-    throw new Error('Database not initialized');
+function ensureFTS5(): void {
+  try {
+    const existing = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='documents_fts'").all() as any[];
+    const hasFTS = existing.length > 0;
+
+    if (!hasFTS) {
+      db.exec(`CREATE VIRTUAL TABLE documents_fts USING fts5(
+        title, content,
+        content=documents,
+        content_rowid=id,
+        tokenize='unicode61'
+      )`);
+      db.exec("INSERT INTO documents_fts(rowid, title, content) SELECT id, title, content FROM documents");
+      db.exec(`CREATE TRIGGER IF NOT EXISTS documents_fts_ai AFTER INSERT ON documents BEGIN
+        INSERT INTO documents_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
+      END`);
+      db.exec(`CREATE TRIGGER IF NOT EXISTS documents_fts_ad AFTER DELETE ON documents BEGIN
+        INSERT INTO documents_fts(documents_fts, rowid, title, content) VALUES('delete', old.id, old.title, old.content);
+      END`);
+      db.exec(`CREATE TRIGGER IF NOT EXISTS documents_fts_au AFTER UPDATE ON documents BEGIN
+        INSERT INTO documents_fts(documents_fts, rowid, title, content) VALUES('delete', old.id, old.title, old.content);
+        INSERT INTO documents_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
+      END`);
+    }
+    console.log('FTS5: ready');
+  } catch (e) {
+    console.error('FTS5 setup failed (will fall back to LIKE search):', e);
   }
-  return db;
 }
 
-export function run(sql: string, params: any[] = []): any {
+export function run(sql: string, params: any[] = []): any[] {
   const stmt = db.prepare(sql);
-  stmt.bind(params);
-  const result: any[] = [];
-  while (stmt.step()) {
-    result.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return result;
+  return stmt.all(...params);
 }
 
 export function runInsert(sql: string, params: any[] = []): number {
-  db.run(sql, params);
-  const result = db.exec('SELECT last_insert_rowid() as id');
-  saveDb();
-  return result[0]?.values[0]?.[0] as number || 0;
+  const stmt = db.prepare(sql);
+  const result = stmt.run(...params);
+  return Number(result.lastInsertRowid);
 }
 
 export function runUpdate(sql: string, params: any[] = []): void {
-  db.run(sql, params);
-  saveDb();
+  const stmt = db.prepare(sql);
+  stmt.run(...params);
+}
+
+export function getDb(): any {
+  return db;
 }

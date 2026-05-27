@@ -505,19 +505,19 @@ export default function DocumentPage() {
         return
       }
       if (line.startsWith('#### ')) {
-        elements.push(<h4 key={lineIdx} className="text-base font-semibold mt-5 mb-2">{line.replace('#### ', '')}</h4>)
+        elements.push(<h4 key={lineIdx} className="text-base font-semibold mt-5 mb-2">{renderInlineMarkdown(line.replace('#### ', ''))}</h4>)
         return
       }
       if (line.startsWith('### ')) {
-        elements.push(<h3 key={lineIdx} className="text-lg font-semibold mt-6 mb-3">{line.replace('### ', '')}</h3>)
+        elements.push(<h3 key={lineIdx} className="text-lg font-semibold mt-6 mb-3">{renderInlineMarkdown(line.replace('### ', ''))}</h3>)
         return
       }
       if (line.startsWith('## ')) {
-        elements.push(<h2 key={lineIdx} className="text-xl font-semibold mt-8 mb-4">{line.replace('## ', '')}</h2>)
+        elements.push(<h2 key={lineIdx} className="text-xl font-semibold mt-8 mb-4">{renderInlineMarkdown(line.replace('## ', ''))}</h2>)
         return
       }
       if (line.startsWith('# ') && doc && line.replace('# ', '').trim() !== doc.title) {
-        elements.push(<h1 key={lineIdx} className="text-2xl font-bold mt-8 mb-4">{line.replace('# ', '')}</h1>)
+        elements.push(<h1 key={lineIdx} className="text-2xl font-bold mt-8 mb-4">{renderInlineMarkdown(line.replace('# ', ''))}</h1>)
         return
       }
       
@@ -569,37 +569,65 @@ export default function DocumentPage() {
   const renderInlineMarkdown = (text: string) => {
     const elements: JSX.Element[] = []
     
-    // 支持图片 ![alt](url)、文档链接 [[]]、标准链接 []()、粗体、斜体、代码
-    const regex = /(!\[([^\]]*)\]\(([^)]+)\)|\[\[([^\]]+)\]\]|\[([^\]]+)\]\(([^)]+)\)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(`[^`]+`))/g
+    // Phase 1: Protect [[wiki links]] from being consumed by bold/italic patterns.
+    // Replace each [[title]] with a placeholder so **[[title]]** bold matching
+    // can't eat the wiki link syntax.
+    const wikiMap = new Map<string, string>()
+    const protectedText = text.replace(/\[\[([^\]]+)\]\]/g, (_, title: string) => {
+      const key = `\x00W${wikiMap.size}\x00`
+      wikiMap.set(key, title)
+      return key
+    })
+    
+    // Render a text segment, resolving wiki placeholders into clickable spans
+    const renderWithWiki = (segment: string, keyPrefix: string): JSX.Element => {
+      if (!segment) return <></>
+      if (!segment.includes('\x00')) return <span key={keyPrefix}>{segment}</span>
+      const parts = segment.split(/(\x00W\d+\x00)/)
+      const children = parts.map((part, i) => {
+        if (wikiMap.has(part)) {
+          const title = wikiMap.get(part)!
+          return (
+            <span
+              key={`wl-${keyPrefix}-${i}`}
+              onClick={() => handleDocLinkClick(title)}
+              className="text-blue-600 hover:text-blue-700 underline cursor-pointer"
+            >
+              {title}
+            </span>
+          )
+        }
+        return part
+      })
+      return <span key={keyPrefix}>{children}</span>
+    }
+    
+    // Restore wiki placeholders back to original [[title]] form (for code, images, links)
+    const restoreOriginal = (segment: string) =>
+      segment.replace(/\x00W\d+\x00/g, m => {
+        const title = wikiMap.get(m)
+        return title ? `[[${title}]]` : m
+      })
+    
+    // Phase 2: Parse inline markdown (bold, italic, images, links, code)
+    // [[wiki links]] are no longer in the regex — handled by placeholders above
+    const regex = /(!\[([^\]]*)\]\(([^)]+)\)|\[([^\]]+)\]\(([^)]+)\)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(`[^`]+`))/g
     let lastIndex = 0
     let match
     
-    while ((match = regex.exec(text)) !== null) {
-      // 添加普通文本
+    while ((match = regex.exec(protectedText)) !== null) {
       if (match.index > lastIndex) {
-        elements.push(<span key={`text-${lastIndex}`}>{text.slice(lastIndex, match.index)}</span>)
+        elements.push(renderWithWiki(protectedText.slice(lastIndex, match.index), `t-${lastIndex}`))
       }
       
       const fullMatch = match[0]
       
-      if (fullMatch.startsWith('[[') && fullMatch.endsWith(']]')) {
-        const title = fullMatch.slice(2, -2)
-        elements.push(
-          <span 
-            key={`link-${match.index}`}
-            onClick={() => handleDocLinkClick(title)}
-            className="text-blue-600 hover:text-blue-700 underline cursor-pointer"
-          >
-            {title}
-          </span>
-        )
-      } else if (fullMatch.startsWith('![')) {
+      if (fullMatch.startsWith('![')) {
         const imgSrc = fullMatch.match(/^!\[([^\]]*)\]\(([^)]+)\)$/)
         if (imgSrc) {
-          elements.push(<img key={`img-${match.index}`} src={imgSrc[2]} alt={imgSrc[1]} className="max-w-full h-auto my-4 rounded-lg" loading="lazy" />)
+          elements.push(<img key={`img-${match.index}`} src={imgSrc[2]} alt={restoreOriginal(imgSrc[1])} className="max-w-full h-auto my-4 rounded-lg" loading="lazy" />)
         }
       } else {
-        // 标准 Markdown 链接 [text](url)
         const linkMatch = fullMatch.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
         if (linkMatch) {
           elements.push(
@@ -610,24 +638,23 @@ export default function DocumentPage() {
               rel="noopener noreferrer"
               className="text-blue-600 hover:text-blue-700 underline"
             >
-              {linkMatch[1]}
+              {restoreOriginal(linkMatch[1])}
             </a>
           )
         } else if (fullMatch.startsWith('**') && fullMatch.endsWith('**')) {
-          elements.push(<strong key={`bold-${match.index}`} className="font-bold">{fullMatch.slice(2, -2)}</strong>)
+          elements.push(<strong key={`bold-${match.index}`} className="font-bold">{renderWithWiki(fullMatch.slice(2, -2), `b-${match.index}`)}</strong>)
         } else if (fullMatch.startsWith('*') && fullMatch.endsWith('*')) {
-          elements.push(<em key={`italic-${match.index}`}>{fullMatch.slice(1, -1)}</em>)
+          elements.push(<em key={`italic-${match.index}`}>{renderWithWiki(fullMatch.slice(1, -1), `i-${match.index}`)}</em>)
         } else if (fullMatch.startsWith('`') && fullMatch.endsWith('`')) {
-          elements.push(<code key={`code-${match.index}`} className="px-1 py-0.5 bg-gray-100 rounded text-sm font-mono">{fullMatch.slice(1, -1)}</code>)
+          elements.push(<code key={`code-${match.index}`} className="px-1 py-0.5 bg-gray-100 rounded text-sm font-mono">{restoreOriginal(fullMatch.slice(1, -1))}</code>)
         }
       }
       
       lastIndex = match.index + fullMatch.length
     }
     
-    // 添加剩余文本
-    if (lastIndex < text.length) {
-      elements.push(<span key={`text-${lastIndex}`}>{text.slice(lastIndex)}</span>)
+    if (lastIndex < protectedText.length) {
+      elements.push(renderWithWiki(protectedText.slice(lastIndex), `t-${lastIndex}`))
     }
     
     return elements.length > 0 ? elements : <span>{text}</span>

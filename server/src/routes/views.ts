@@ -10,7 +10,7 @@ router.post('/:docId', authMiddleware, (req: AuthRequest, res: Response) => {
   
   try {
     runInsert(
-      'INSERT OR IGNORE INTO document_views (document_id, user_id, viewed_at) VALUES (?, ?, date("now"))',
+      "INSERT OR IGNORE INTO document_views (document_id, user_id, viewed_at) VALUES (?, ?, date('now'))",
       [docId, userId]
     )
     res.json({ success: true })
