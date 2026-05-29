@@ -55,11 +55,10 @@ export default function GraphPage() {
   const [loading, setLoading] = useState(true)
   const [indexData, setIndexData] = useState<IndexData | null>(null)
   const [showIndex, setShowIndex] = useState(false)
-  const [showEdgeLabels, setShowEdgeLabels] = useState(true)
+  const [showUnconnected, setShowUnconnected] = useState(true)
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const simulationRef = useRef<d3.Simulation<SimNode, SimLink> | null>(null)
-  const labelGroupsRef = useRef<{ texts: d3.Selection<SVGTextElement, SimLink, null, undefined> | null; bgs: d3.Selection<SVGRectElement, SimLink, null, undefined> | null }>({ texts: null, bgs: null })
   const navigate = useNavigate()
 
   const graphDataRef = useRef<{ nodes: GraphNode[]; links: GraphLink[] } | null>(null)
@@ -73,7 +72,7 @@ export default function GraphPage() {
       const data = graphRes.data
       graphDataRef.current = data
       setNodes(data.nodes)
-      setStats({ nodes: data.nodes.length, links: data.links.length })
+      setStats({ nodes: data.totalCount ?? data.nodes.length, links: data.links.length })
       setIndexData(indexRes.data)
     } catch (err) {
       console.error(err)
@@ -164,18 +163,14 @@ export default function GraphPage() {
       return `M${sx},${sy}Q${cx},${cy}${tx},${ty}`
     }
 
-    const getMid = (d: SimLink) => {
-      const s = d.source as SimNode, t = d.target as SimNode
-      const sx = s.x, sy = s.y, tx = t.x, ty = t.y
-      if (!d.curvature) return [(sx + tx) / 2, (sy + ty) / 2]
-      const dx = tx - sx, dy = ty - sy
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1
-      const offset = Math.max(40, dist * 0.3)
-      const nx = -dy / dist, ny = dx / dist
-      const cx = (sx + tx) / 2 + nx * d.curvature * offset
-      const cy = (sy + ty) / 2 + ny * d.curvature * offset
-      return [0.25 * sx + 0.5 * cx + 0.25 * tx, 0.25 * sy + 0.5 * cy + 0.25 * ty]
+    // Determine connected node ids (from original links which have document IDs)
+    const connectedIds = new Set<number>()
+    for (const l of links) {
+      connectedIds.add(l.source)
+      connectedIds.add(l.target)
     }
+
+    const visibleNodes = showUnconnected ? simNodes : simNodes.filter(n => connectedIds.has(n.id))
 
     // Links
     const linkSel = g.append('g')
@@ -188,31 +183,10 @@ export default function GraphPage() {
       .attr('fill', 'none')
       .style('cursor', 'pointer')
 
-    // Edge labels
-    const labelSel = g.append('g')
-    const labelText = labelSel.selectAll<SVGTextElement, SimLink>('text')
-      .data(simLinks)
-      .enter().append('text')
-      .text(d => d.label)
-      .attr('font-size', '9px')
-      .attr('fill', d => getEdgeColor(d))
-      .attr('text-anchor', 'middle')
-      .attr('dominant-baseline', 'middle')
-      .style('pointer-events', 'none')
-      .style('font-family', 'system-ui, sans-serif')
-
-    const labelBg = labelSel.selectAll<SVGRectElement, SimLink>('rect')
-      .data(simLinks)
-      .enter().append('rect')
-      .attr('fill', 'rgba(255,255,255,0.9)')
-      .attr('rx', 3).attr('ry', 3)
-
-    labelGroupsRef.current = { texts: labelText as any, bgs: labelBg as any }
-
     // Nodes
     const nodeGroup = g.append('g')
     const nodeCircle = nodeGroup.selectAll<SVGCircleElement, SimNode>('circle')
-      .data(simNodes)
+      .data(visibleNodes)
       .enter().append('circle')
       .attr('r', d => Math.max(5, Math.min(20, 5 + (d.val || 1) * 2.5)))
       .attr('fill', d => getNodeColor(d))
@@ -220,7 +194,7 @@ export default function GraphPage() {
       .style('cursor', 'pointer')
 
     const nodeLabel = nodeGroup.selectAll<SVGTextElement, SimNode>('text')
-      .data(simNodes)
+      .data(visibleNodes)
       .enter().append('text')
       .text(d => d.name.length > 15 ? d.name.slice(0, 15) + '…' : d.name)
       .attr('font-size', '11px')
@@ -244,19 +218,6 @@ export default function GraphPage() {
       .force('y', d3.forceY(height / 2).strength(0.03))
       .on('tick', () => {
         linkSel.attr('d', d => getPath(d))
-        labelText.each(function (d) {
-          const m = getMid(d); d3.select(this).attr('x', m[0]).attr('y', m[1])
-        })
-        labelBg.each(function (d, i) {
-          const m = getMid(d)
-          const el = labelText.nodes()[i]
-          if (el) {
-            const b = el.getBBox()
-            d3.select(this)
-              .attr('x', m[0] - b.width / 2 - 3).attr('y', m[1] - b.height / 2 - 1)
-              .attr('width', b.width + 6).attr('height', b.height + 2)
-          }
-        })
         nodeCircle.attr('cx', d => d.x).attr('cy', d => d.y)
         nodeLabel.attr('x', d => d.x).attr('y', d => d.y)
       })
@@ -309,7 +270,7 @@ export default function GraphPage() {
     })
 
     svg.on('click', () => nodeCircle.attr('stroke', '#fff').attr('stroke-width', 2))
-  }, [navigate])
+  }, [navigate, showUnconnected])
 
   // Render on data load
   useEffect(() => {
@@ -319,22 +280,14 @@ export default function GraphPage() {
       }, 200)
       return () => clearTimeout(timer)
     }
-  }, [loading, nodes, renderGraph])
-
-  // Toggle edge label visibility without re-rendering the graph
-  useEffect(() => {
-    const { texts, bgs } = labelGroupsRef.current
-    const display = showEdgeLabels ? 'block' : 'none'
-    texts?.style('display', display)
-    bgs?.style('display', display)
-  }, [showEdgeLabels])
+  }, [loading, nodes, renderGraph, showUnconnected])
 
   // Resize
   const handleResize = useCallback(() => {
     if (!loading && nodes.length > 0 && graphDataRef.current) {
       renderGraph(nodes, graphDataRef.current.links)
     }
-  }, [loading, nodes, renderGraph])
+  }, [loading, nodes, renderGraph, showUnconnected])
 
   useEffect(() => {
     window.addEventListener('resize', handleResize)
@@ -363,10 +316,6 @@ export default function GraphPage() {
     )
   }
 
-  const typeLabels = [
-    { color: '#9CA3AF', label: '文档引用' },
-  ]
-
   if (loading) return (
     <div className="flex items-center justify-center h-full">
       <div className="animate-pulse flex flex-col items-center">
@@ -385,10 +334,10 @@ export default function GraphPage() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => setShowEdgeLabels(v => !v)}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${showEdgeLabels ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            onClick={() => { simulationRef.current?.stop(); setShowUnconnected(v => !v) }}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${showUnconnected ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
           >
-            边标签 {showEdgeLabels ? 'ON' : 'OFF'}
+            孤立节点 {showUnconnected ? 'ON' : 'OFF'}
           </button>
           <button
             onClick={() => setShowIndex(v => !v)}
@@ -413,20 +362,6 @@ export default function GraphPage() {
             </div>
           ) : (
             <>
-              <div className="absolute top-4 left-4 z-10 bg-white/90 backdrop-blur-sm rounded-xl px-4 py-3 shadow-sm border border-gray-100">
-                <p className="text-sm text-gray-600">
-                  <span className="text-blue-500 font-medium">{stats.nodes}</span> 个文档，<span className="text-gray-400">{stats.links}</span> 个链接
-                </p>
-                <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-500">
-                  {typeLabels.map(t => (
-                    <span key={t.label} className="flex items-center gap-1">
-                      <span className="w-4 h-0.5" style={{ background: t.color }} />
-                      {t.label}
-                    </span>
-                  ))}
-                </div>
-                <p className="text-xs text-gray-400 mt-1">悬停高亮关联 · 滚轮缩放 · 拖拽移动</p>
-              </div>
               <svg ref={svgRef} className="w-full h-full absolute inset-0" style={{ display: 'block' }} />
             </>
           )}

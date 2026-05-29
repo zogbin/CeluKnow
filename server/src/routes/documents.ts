@@ -21,6 +21,10 @@ function isExternalUrl(url: string): boolean {
     && !url.startsWith('/uploads/');
 }
 
+function escapeSqlLike(s: string): string {
+  return s.replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
 async function downloadImage(docId: string, url: string): Promise<string> {
   let ext = '';
   try {
@@ -48,32 +52,33 @@ async function downloadImage(docId: string, url: string): Promise<string> {
 }
 
 async function processContentImages(docId: string, content: string): Promise<string> {
-  const urlMap = new Map<string, string>();
+  const externalUrls = new Set<string>();
 
   const mdRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
   let match;
   while ((match = mdRegex.exec(content)) !== null) {
     const url = match[2];
-    if (isExternalUrl(url) && !urlMap.has(url)) {
-      try {
-        const localPath = await downloadImage(docId, url);
-        urlMap.set(url, localPath);
-      } catch (e) {
-        console.error(`[image-dl] ${url.substring(0, 60)}:`, (e as Error).message);
-      }
-    }
+    if (isExternalUrl(url)) externalUrls.add(url);
   }
 
   const htmlRegex = /<img[^>]+src="([^"]+)"[^>]*>/g;
   while ((match = htmlRegex.exec(content)) !== null) {
     const url = match[1];
-    if (isExternalUrl(url) && !urlMap.has(url)) {
-      try {
-        const localPath = await downloadImage(docId, url);
-        urlMap.set(url, localPath);
-      } catch (e) {
-        console.error(`[image-dl] ${url.substring(0, 60)}:`, (e as Error).message);
-      }
+    if (isExternalUrl(url)) externalUrls.add(url);
+  }
+
+  const results = await Promise.allSettled(
+    [...externalUrls].map(url =>
+      downloadImage(docId, url).then(localPath => ({ url, localPath }))
+    )
+  );
+
+  const urlMap = new Map<string, string>();
+  for (const r of results) {
+    if (r.status === 'fulfilled') {
+      urlMap.set(r.value.url, r.value.localPath);
+    } else {
+      console.error(`[image-dl] 下载失败:`, (r.reason as Error).message?.substring(0, 120));
     }
   }
 
@@ -112,7 +117,11 @@ router.get('/sidebar-data', authMiddleware, (req: AuthRequest, res: Response) =>
   const userId = req.user!.id;
   const userCats = run('SELECT * FROM categories WHERE user_id = ? ORDER BY name', [userId]) as any[];
   const systemCats = run('SELECT * FROM categories WHERE is_system = 1 ORDER BY name') as any[];
-  const categories = [...userCats, ...systemCats];
+  // Deduplicate by name: user's own category takes precedence over system
+  const catMap = new Map<string, any>();
+  for (const cat of systemCats) catMap.set(cat.name, cat);
+  for (const cat of userCats) catMap.set(cat.name, cat);
+  const categories = [...catMap.values()];
 
   const categoryDocs: Record<number, any[]> = {};
   const allDocIds = new Set<number>();
@@ -428,27 +437,42 @@ router.get('/graph', authMiddleware, (req: AuthRequest, res: Response) => {
     nodeTagsMap[dt.document_id].push(dt.tag_name);
   }
   
-  // Incoming link count (for node size)
-  const incomingCount: Record<number, number> = {};
+  // Total degree count (for node size)
+  const degreeCount: Record<number, number> = {};
   for (const link of links) {
-    incomingCount[link.target] = (incomingCount[link.target] || 0) + 1;
+    degreeCount[link.source] = (degreeCount[link.source] || 0) + 1;
+    degreeCount[link.target] = (degreeCount[link.target] || 0) + 1;
   }
-  
-  const linkedIds = new Set<number>();
-  for (const link of links) {
-    linkedIds.add(link.source);
-    linkedIds.add(link.target);
-  }
-  const linkedDocs = docs.filter(d => linkedIds.has(d.id));
+
+  // Count documents not exclusively in system categories
+  const systemOnlyCount = run(`
+    SELECT COUNT(*) as cnt FROM (
+      SELECT d.id FROM documents d
+      WHERE (d.visibility = 'public' OR d.author_id = ?)
+      AND d.id IN (
+        SELECT dc.document_id FROM document_categories dc
+        JOIN categories c ON dc.category_id = c.id
+        WHERE c.is_system = 1
+      )
+      AND d.id NOT IN (
+        SELECT dc2.document_id FROM document_categories dc2
+        JOIN categories c2 ON dc2.category_id = c2.id
+        WHERE c2.is_system = 0
+      )
+    )
+  `, [userId]) as any[];
+  const totalCount = docs.length - (systemOnlyCount[0]?.cnt || 0);
+
   res.json({
-    nodes: linkedDocs.map(d => ({
+    nodes: docs.map(d => ({
       id: d.id,
       name: d.title,
-      val: (incomingCount[d.id] || 0) + 1,
+      val: Math.max(1, degreeCount[d.id] || 0),
       categories: nodeCategories[d.id] || [],
       tags: nodeTagsMap[d.id] || []
     })),
-    links
+    links,
+    totalCount
   });
 });
 
@@ -500,6 +524,10 @@ router.post('/', authMiddleware, roleMiddleware(['admin', 'editor']), (req: Auth
   if (!title) {
     return res.status(400).json({ error: '标题必填' });
   }
+  const existing = run('SELECT id FROM documents WHERE title = ?', [title]);
+  if (existing.length > 0) {
+    return res.status(409).json({ error: '标题已存在' });
+  }
   const id = runInsert(
     'INSERT INTO documents (title, folder_path, content, author_id, visibility) VALUES (?, ?, ?, ?, ?)',
     [title, folder_path || '/', content || '', req.user!.id, visibility]
@@ -518,6 +546,26 @@ router.put('/:id', authMiddleware, roleMiddleware(['admin', 'editor']), async (r
   }
   if (req.user!.role !== 'admin' && doc.author_id !== req.user!.id) {
     return res.status(403).json({ error: '权限不足' });
+  }
+
+  const newTitle = title || doc.title;
+
+  if (newTitle !== doc.title) {
+    // Check duplicate title (excluding self)
+    const dup = run('SELECT id FROM documents WHERE title = ? AND id != ?', [newTitle, req.params.id]);
+    if (dup.length > 0) {
+      return res.status(409).json({ error: '标题已存在' });
+    }
+    // Update wiki links in all other documents
+    const oldTitle = doc.title;
+    const allDocs = run('SELECT id, content FROM documents WHERE id != ? AND content LIKE ?', [req.params.id, `%[[${escapeSqlLike(oldTitle)}]]%`]);
+    for (const other of allDocs) {
+      if (!other.content) continue;
+      const updatedContent = other.content.replaceAll(`[[${oldTitle}]]`, `[[${newTitle}]]`);
+      if (updatedContent !== other.content) {
+        runUpdate('UPDATE documents SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [updatedContent, other.id]);
+      }
+    }
   }
 
   let finalContent = content;
@@ -541,10 +589,10 @@ router.put('/:id', authMiddleware, roleMiddleware(['admin', 'editor']), async (r
   }
   runUpdate(
     'UPDATE documents SET title = ?, content = ?, folder_path = ?, visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-    [title || doc.title, finalContent ?? doc.content, folder_path ?? doc.folder_path, visibility ?? doc.visibility, req.params.id]
+    [newTitle, finalContent ?? doc.content, folder_path ?? doc.folder_path, visibility ?? doc.visibility, req.params.id]
   );
   if (finalContent !== undefined) {
-    storage.writeDocument(folder_path ?? doc.folder_path, title ?? doc.title, finalContent);
+    storage.writeDocument(folder_path ?? doc.folder_path, newTitle, finalContent);
   }
   rebuildUserIndex(req.user!.id);
   res.json({ success: true });
@@ -559,6 +607,18 @@ router.delete('/:id', authMiddleware, (req: AuthRequest, res: Response) => {
   if (req.user!.role !== 'admin' && doc.author_id !== req.user!.id) {
     return res.status(403).json({ error: '权限不足' });
   }
+  const docTitle = doc.title;
+
+  // Remove wiki references to this document from other documents
+  const refDocs = run('SELECT id, content FROM documents WHERE id != ? AND content LIKE ?', [req.params.id, `%[[${escapeSqlLike(docTitle)}]]%`]);
+  for (const ref of refDocs) {
+    if (!ref.content) continue;
+    const updatedContent = ref.content.replaceAll(`[[${docTitle}]]`, docTitle);
+    if (updatedContent !== ref.content) {
+      runUpdate('UPDATE documents SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [updatedContent, ref.id]);
+    }
+  }
+
   runUpdate('DELETE FROM document_versions WHERE document_id = ?', [req.params.id]);
   runUpdate('DELETE FROM documents WHERE id = ?', [req.params.id]);
   try { storage.deleteDocument(doc.folder_path, doc.title); } catch {}

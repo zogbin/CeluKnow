@@ -388,6 +388,22 @@ export default function TaxonomyPage() {
               <button onClick={() => openDocModal('category', expandedCategoryId)} className="text-xs text-blue-500 hover:text-blue-700 mt-1">
                 + 分配文档
               </button>
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await api.get(`/import-export/export?category_id=${expandedCategoryId}`, { responseType: 'blob' })
+                    const url = URL.createObjectURL(new Blob([res.data]))
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `category-${expandedCategoryId}.zip`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  } catch {}
+                }}
+                className="text-xs text-gray-500 hover:text-gray-700 mt-1 ml-3"
+              >
+                导出 ZIP
+              </button>
             </div>
           )}
         </div>
@@ -488,6 +504,22 @@ export default function TaxonomyPage() {
               ))}
               <button onClick={() => openDocModal('tag', expandedTagId)} className="text-xs text-blue-500 hover:text-blue-700 mt-1">
                 + 分配文档
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await api.get(`/import-export/export?tag_id=${expandedTagId}`, { responseType: 'blob' })
+                    const url = URL.createObjectURL(new Blob([res.data]))
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `tag-${expandedTagId}.zip`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  } catch {}
+                }}
+                className="text-xs text-gray-500 hover:text-gray-700 mt-1 ml-3"
+              >
+                导出 ZIP
               </button>
             </div>
           )}

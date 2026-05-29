@@ -49,7 +49,7 @@ router.post('/import', authMiddleware, async (req: AuthRequest, res: Response) =
         const { data: frontMatter, content: body } = parseFrontMatter(file.content);
         
         let title = frontMatter.title || file.name.replace(/\.md$/, '');
-        const folder = file.folder || frontMatter.category || '未分类';
+        const folder = frontMatter.category || file.folder || '未分类';
         const visibility = frontMatter.visibility || 'private';
         const tags = frontMatter.tags || '';
         
@@ -75,6 +75,11 @@ router.post('/import', authMiddleware, async (req: AuthRequest, res: Response) =
             [folder, userId, '#6366f1', 'folder']);
         }
         
+        const existingDoc = run('SELECT id FROM documents WHERE title = ?', [title]);
+        if (existingDoc.length > 0) {
+          results.push({ name: file.name, success: false, error: `标题已存在: ${title}` });
+          continue;
+        }
         const getLocalNow = () => {
   const d = new Date()
   const y = d.getFullYear()
@@ -151,8 +156,8 @@ router.post('/import/zip', authMiddleware, async (req: AuthRequest, res: Respons
         if (categories.length > 0 && categories[0].id) {
           categoryId = categories[0].id;
         } else {
-          categoryId = runInsert('INSERT INTO categories (name, color, icon) VALUES (?, ?, ?)', 
-            [folder, '#6366f1', 'folder']);
+          categoryId = runInsert('INSERT INTO categories (name, user_id, color, icon) VALUES (?, ?, ?, ?)', 
+            [folder, userId, '#6366f1', 'folder']);
         }
         folderMap.set(folder, categoryId);
       }
@@ -180,15 +185,21 @@ router.post('/import/zip', authMiddleware, async (req: AuthRequest, res: Respons
         if (categoryFromFm) {
           const catId = folderMap.get(categoryFromFm);
           if (catId === undefined) {
-            const cats = run('SELECT id FROM categories WHERE name = ?', [categoryFromFm]) as any[];
+            const cats = run('SELECT id FROM categories WHERE name = ? AND (user_id = ? OR is_system = 1)', [categoryFromFm, userId]) as any[];
             if (cats.length > 0) {
               categoryId = cats[0].id;
             } else {
-              categoryId = runInsert('INSERT INTO categories (name, color, icon) VALUES (?, ?, ?)', 
-                [categoryFromFm, '#6366f1', 'folder']);
+              categoryId = runInsert('INSERT INTO categories (name, user_id, color, icon) VALUES (?, ?, ?, ?)', 
+                [categoryFromFm, userId, '#6366f1', 'folder']);
             }
 folderMap.set(categoryFromFm, categoryId);
           }
+        }
+        
+        const existingDoc = run('SELECT id FROM documents WHERE title = ?', [title]);
+        if (existingDoc.length > 0) {
+          results.push({ name, success: false, error: `标题已存在: ${title}` });
+          continue;
         }
         
         const docId = runInsert(
@@ -227,10 +238,30 @@ folderMap.set(categoryFromFm, categoryId);
 router.get('/export', authMiddleware, (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.id;
-    
+    const { category_id, tag_id } = req.query;
+
+    if (category_id) {
+      const cat = run('SELECT id FROM categories WHERE id = ? AND (user_id = ? OR is_system = 1)', [category_id, userId]) as any[];
+      if (cat.length === 0) {
+        return res.status(403).json({ error: '无权导出此分类' });
+      }
+    }
+
+    let whereClause = "WHERE (d.visibility = 'public' OR d.author_id = ?)";
+    let params: any[] = [userId];
+
+    if (category_id) {
+      whereClause += ' AND dc.category_id = ?';
+      params.push(category_id);
+    }
+    if (tag_id) {
+      whereClause += ' AND dt.tag_id = ?';
+      params.push(tag_id);
+    }
+
     const docs = run(`
-      SELECT d.*, u.username as author_name,
-      GROUP_CONCAT(t.name) as tags,
+      SELECT DISTINCT d.*, u.username as author_name,
+      GROUP_CONCAT(DISTINCT t.name) as tags,
       c.id as category_id, c.name as category_name
       FROM documents d
       LEFT JOIN users u ON d.author_id = u.id
@@ -238,13 +269,13 @@ router.get('/export', authMiddleware, (req: AuthRequest, res: Response) => {
       LEFT JOIN tags t ON dt.tag_id = t.id
       LEFT JOIN document_categories dc ON d.id = dc.document_id
       LEFT JOIN categories c ON dc.category_id = c.id
-      WHERE d.visibility = 'public' OR d.author_id = ?
+      ${whereClause}
       GROUP BY d.id
-    `, [userId]) as any[];
-    
+    `, params) as any[];
+
     const categoryMap = new Map<string, any[]>();
     const uncategorized: any[] = [];
-    
+
     for (const doc of docs) {
       const catName = doc.category_name || '未分类';
       if (!categoryMap.has(catName)) {
@@ -254,20 +285,49 @@ router.get('/export', authMiddleware, (req: AuthRequest, res: Response) => {
         title: doc.title,
         content: doc.content,
         tags: doc.tags,
+        category: catName,
         visibility: doc.visibility,
         created_at: doc.created_at,
         updated_at: doc.updated_at,
         author: doc.author_name
       });
     }
-    
+
+    // If specifying a category or tag, return as downloadable zip
+    if (category_id || tag_id) {
+      const zip = new AdmZip();
+      const label = category_id ? `category-${category_id}` : `tag-${tag_id}`;
+      for (const [catName, catDocs] of categoryMap) {
+        for (const doc of catDocs) {
+          const frontMatter = `---
+title: ${doc.title}
+category: ${catName}
+tags: ${doc.tags || ''}
+visibility: ${doc.visibility}
+created_at: ${doc.created_at}
+updated_at: ${doc.updated_at}
+author: ${doc.author}
+---
+
+`;
+          zip.addFile(`${catName}/${doc.title}.md`, Buffer.from(frontMatter + doc.content));
+        }
+      }
+      const labelName = category_id
+        ? (docs[0]?.category_name || `category-${category_id}`)
+        : `tag-${tag_id}`;
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(labelName)}.zip"`);
+      return res.send(zip.toBuffer());
+    }
+
     const result: Record<string, Record<string, string>> = {};
-    
     for (const [category, documents] of categoryMap) {
       result[category] = {};
       for (const doc of documents) {
         const frontMatter = `---
 title: ${doc.title}
+category: ${category}
 tags: ${doc.tags || ''}
 visibility: ${doc.visibility}
 created_at: ${doc.created_at}
@@ -279,8 +339,49 @@ author: ${doc.author}
         result[category][`${doc.title}.md`] = frontMatter + doc.content;
       }
     }
-    
+
     res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Export single document as downloadable markdown
+router.get('/export/:id', authMiddleware, (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const docs = run(`
+      SELECT d.*, u.username as author_name,
+      GROUP_CONCAT(DISTINCT t.name) as tags,
+      c.name as category
+      FROM documents d
+      LEFT JOIN users u ON d.author_id = u.id
+      LEFT JOIN document_tags dt ON d.id = dt.document_id
+      LEFT JOIN tags t ON dt.tag_id = t.id
+      LEFT JOIN document_categories dc ON d.id = dc.document_id
+      LEFT JOIN categories c ON dc.category_id = c.id
+      WHERE d.id = ? AND (d.visibility = 'public' OR d.author_id = ?)
+      GROUP BY d.id
+    `, [req.params.id, userId]) as any[];
+    const doc = docs[0];
+    if (!doc) {
+      return res.status(404).json({ error: '文档不存在' });
+    }
+    const frontMatter = `---
+title: ${doc.title}
+category: ${doc.category || ''}
+tags: ${doc.tags || ''}
+visibility: ${doc.visibility}
+created_at: ${doc.created_at}
+updated_at: ${doc.updated_at}
+author: ${doc.author_name}
+---
+
+`;
+    const content = frontMatter + (doc.content || '');
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(doc.title)}.md"`);
+    res.send(content);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

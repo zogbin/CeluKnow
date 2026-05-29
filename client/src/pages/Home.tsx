@@ -106,8 +106,13 @@ export default function Home() {
         return
       }
       
-      await api.post('/import-export/import', { files: fileData })
-      alert(`导入成功，共 ${fileData.length} 篇文档`)
+      const res = await api.post('/import-export/import', { files: fileData })
+      const successCount = res.data.results.filter((r: any) => r.success).length
+      const failCount = res.data.results.filter((r: any) => !r.success).length
+      const msg = failCount > 0
+        ? `导入完成：${successCount} 篇成功，${failCount} 篇失败（${res.data.results.filter((r: any) => !r.success).map((r: any) => r.name).join('、')}）`
+        : `导入成功，共 ${successCount} 篇文档`
+      alert(msg)
       window.refreshSidebar?.()
       setPage(1)
     } catch (err: any) {

@@ -91,8 +91,10 @@ export default function Sidebar({ onClose, defaultCollapsed = false }: SidebarPr
     if (location.pathname.startsWith('/doc/')) {
       const docId = location.pathname.split('/doc/')[1]
       const doc = documents.find(d => d.id === parseInt(docId))
-      if (doc?.category_id && !expandedCats.has(doc.category_id)) {
-        setExpandedCats(new Set([...expandedCats, doc.category_id]))
+      if (doc?.category_id) {
+        setExpandedCats(new Set([doc.category_id]))
+      } else {
+        setExpandedCats(new Set())
       }
     }
   }, [location.pathname, documents])
@@ -252,11 +254,6 @@ export default function Sidebar({ onClose, defaultCollapsed = false }: SidebarPr
                           key={doc.id}
                           to={`/doc/${doc.id}`}
                           onClick={() => {
-                            if (doc.category_id && !expandedCats.has(doc.category_id)) {
-                              const newExpanded = new Set(expandedCats)
-                              newExpanded.add(doc.category_id)
-                              setExpandedCats(newExpanded)
-                            }
                             window.refreshSidebar?.()
                           }}
                           className={`flex items-center gap-2 py-1.5 px-3 rounded-lg transition-all ${

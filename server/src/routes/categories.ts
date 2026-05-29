@@ -8,7 +8,10 @@ const router = Router();
 router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
   const userCats = run('SELECT * FROM categories WHERE user_id = ? ORDER BY name', [req.user!.id]) as any[];
   const systemCats = run('SELECT * FROM categories WHERE is_system = 1 ORDER BY name') as any[];
-  res.json([...userCats, ...systemCats]);
+  const catMap = new Map<string, any>();
+  for (const cat of systemCats) catMap.set(cat.name, cat);
+  for (const cat of userCats) catMap.set(cat.name, cat);
+  res.json([...catMap.values()]);
 });
 
 router.post('/', authMiddleware, roleMiddleware(['admin', 'editor']), (req: AuthRequest, res: Response) => {
