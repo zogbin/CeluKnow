@@ -28,22 +28,25 @@ export function autoLinkContent(content: string, docId: number, userId: number):
   const currentDoc = run('SELECT title FROM documents WHERE id = ?', [docId]) as any[];
   const selfTitle = currentDoc[0]?.title;
 
-  let result = content;
+  // Protect all existing [[wiki links]] (including [[Title(vX)]]) from bare title replacement
+  const linkMap = new Map<string, string>();
+  let result = content.replace(/\[\[([^\]]+)\]\]/g, (match) => {
+    const key = `\x00SL${linkMap.size}\x00`;
+    linkMap.set(key, match);
+    return key;
+  });
+
   for (const title of titles) {
     if (title === selfTitle) continue;
     if (title.length < 2) continue;
 
-    const encoded = encodeURIComponent(title);
-    const placeholder = `__SYS_LINK_${encoded}__`;
-
-    const linkPattern = new RegExp(escapeRegex(`[[${title}]]`), 'g');
-    result = result.replace(linkPattern, placeholder);
-
     const barePattern = new RegExp(escapeRegex(title), 'g');
     result = result.replace(barePattern, `[[${title}]]`);
+  }
 
-    const restorePattern = new RegExp(escapeRegex(placeholder), 'g');
-    result = result.replace(restorePattern, `[[${title}]]`);
+  // Restore all original [[wiki links]]
+  for (const [key, original] of linkMap) {
+    result = result.replace(key, original);
   }
 
   return result;

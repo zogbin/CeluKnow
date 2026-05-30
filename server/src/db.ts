@@ -42,6 +42,16 @@ const SCHEMA_SQL = `
     FOREIGN KEY (author_id) REFERENCES users(id)
   );
 
+  CREATE TABLE IF NOT EXISTS collections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    sort_order INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(category_id, name)
+  );
+
   CREATE TABLE IF NOT EXISTS tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -249,6 +259,12 @@ function runMigrations(): void {
 
   if (!hasColumn('documents', 'version')) {
     try { db.exec('ALTER TABLE documents ADD COLUMN version INTEGER DEFAULT 0'); } catch (e) { console.log('documents version migration:', e); }
+  }
+
+  for (const col of ['collection_id', 'collection_sort_order']) {
+    if (!hasColumn('document_categories', col)) {
+      try { db.exec(`ALTER TABLE document_categories ADD COLUMN ${col} INTEGER DEFAULT NULL`); } catch (e) { console.log('document_categories migration:', e); }
+    }
   }
 }
 

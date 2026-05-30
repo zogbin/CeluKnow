@@ -78,12 +78,14 @@ router.delete('/:id', authMiddleware, (req: AuthRequest, res: Response) => {
 router.get('/:id/documents', authMiddleware, (req: AuthRequest, res: Response) => {
   const userId = req.user!.id;
   const docs = run(`
-    SELECT d.*, u.username as author_name, dc.sort_order
+    SELECT d.*, u.username as author_name, dc.sort_order, dc.collection_id, dc.collection_sort_order,
+      col.name as collection_name
     FROM documents d
     LEFT JOIN users u ON d.author_id = u.id
     LEFT JOIN document_categories dc ON d.id = dc.document_id
+    LEFT JOIN collections col ON dc.collection_id = col.id
     WHERE dc.category_id = ? AND (d.visibility = 'public' OR d.author_id = ?)
-    ORDER BY dc.sort_order ASC, d.updated_at DESC
+    ORDER BY dc.collection_sort_order ASC, dc.sort_order ASC, d.updated_at DESC
   `, [req.params.id, userId]);
   res.json(docs);
 });

@@ -17,6 +17,15 @@ interface Doc {
   category_id?: number
   visibility?: string
   sort_order?: number
+  collection_id?: number
+}
+
+interface Collection {
+  id: number
+  category_id: number
+  name: string
+  documents: Doc[]
+  sort_order: number
 }
 
 declare global {
@@ -35,6 +44,8 @@ export default function Sidebar({ onClose, defaultCollapsed = false }: SidebarPr
   const [documents, setDocuments] = useState<Doc[]>([])
   const [searchInput, setSearchInput] = useState('')
   const [expandedCats, setExpandedCats] = useState<Set<number>>(new Set())
+  const [categoryCollections, setCategoryCollections] = useState<Record<number, Collection[]>>({})
+  const [expandedCollections, setExpandedCollections] = useState<Set<number>>(new Set())
   const [collapsed, setCollapsed] = useState(defaultCollapsed)
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
   const location = useLocation()
@@ -76,6 +87,9 @@ export default function Sidebar({ onClose, defaultCollapsed = false }: SidebarPr
         }
       }
       setDocuments(docs)
+      if (res.data.categoryCollections) {
+        setCategoryCollections(res.data.categoryCollections)
+      }
       // 默认展开第一个分类
       if (categories.length > 0 && expandedCats.size === 0) {
         setExpandedCats(new Set([categories[0].id]))
@@ -108,6 +122,16 @@ export default function Sidebar({ onClose, defaultCollapsed = false }: SidebarPr
       newExpanded.add(catId)
     }
     setExpandedCats(newExpanded)
+  }
+
+  const toggleCollection = (colId: number) => {
+    const newExpanded = new Set(expandedCollections)
+    if (newExpanded.has(colId)) {
+      newExpanded.delete(colId)
+    } else {
+      newExpanded.add(colId)
+    }
+    setExpandedCollections(newExpanded)
   }
 
   const getDocsByCategory = (catId: number) => {
@@ -248,28 +272,103 @@ export default function Sidebar({ onClose, defaultCollapsed = false }: SidebarPr
                     <span className="text-sm font-medium text-gray-700">{cat.name}</span>
                     <span className="ml-auto text-xs text-gray-400">({catDocs.length})</span>
                   </button>
-                  {isExpanded && catDocs.length > 0 && (
+                  {isExpanded && (
                     <div className="ml-6 mt-1 space-y-1">
-                      {catDocs.map(doc => (
-                        <Link
-                          key={doc.id}
-                          to={`/doc/${doc.id}`}
-                          onClick={() => {
-                            window.refreshSidebar?.()
-                          }}
-                          className={`flex items-center gap-2 py-1.5 px-3 rounded-lg transition-all ${
-                            location.pathname === `/doc/${doc.id}` 
-                              ? 'bg-blue-50 text-blue-600 font-medium' 
-                              : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                          }`}
-                        >
-                          <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          <span className="truncate text-sm">{doc.title}</span>
-                          {doc.version > 0 && <span className="text-[10px] text-gray-400 ml-auto flex-shrink-0">v{doc.version}</span>}
-                        </Link>
-                      ))}
+                      {(() => {
+                        if (cat.is_system && user.role !== 'admin') {
+                          return catDocs.map((doc: any) => (
+                            <Link
+                              key={doc.id}
+                              to={`/doc/${doc.id}`}
+                              onClick={() => window.refreshSidebar?.()}
+                              className={`flex items-center gap-2 py-1.5 px-3 rounded-lg transition-all ${
+                                location.pathname === `/doc/${doc.id}`
+                                  ? 'bg-blue-50 text-blue-600 font-medium'
+                                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                              }`}
+                            >
+                              <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              <span className="truncate text-sm">{doc.title}</span>
+                              {doc.version > 0 && <span className="text-[10px] text-gray-400 ml-auto flex-shrink-0">v{doc.version}</span>}
+                            </Link>
+                          ))
+                        }
+                        const collectionDocIds = new Set<number>()
+                        for (const col of (categoryCollections[cat.id] || [])) {
+                          for (const d of (col.documents || [])) {
+                            collectionDocIds.add(d.id)
+                          }
+                        }
+                        const uncollectedDocs = catDocs.filter(d => !collectionDocIds.has(d.id))
+                        return (
+                          <>
+                            {(categoryCollections[cat.id] || []).map(col => {
+                              const isColExpanded = expandedCollections.has(col.id)
+                              return (
+                                <div key={col.id}>
+                                  <button
+                                    onClick={() => toggleCollection(col.id)}
+                                    className="flex items-center gap-2 w-full py-1.5 px-3 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                                  >
+                                    <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isColExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                    <svg className="w-3.5 h-3.5 text-yellow-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                                    </svg>
+                                    <span className="truncate text-gray-700 font-medium">{col.name}</span>
+                                    <span className="ml-auto text-xs text-gray-400">{(col.documents || []).length}</span>
+                                  </button>
+                                  {isColExpanded && (col.documents || []).length > 0 && (
+                                    <div className="ml-4 space-y-1">
+                                      {(col.documents || []).map((d: Doc) => (
+                                        <Link
+                                          key={d.id}
+                                          to={`/doc/${d.id}`}
+                                          onClick={() => window.refreshSidebar?.()}
+                                          className={`flex items-center gap-2 py-1.5 px-3 rounded-lg transition-all ${
+                                            location.pathname === `/doc/${d.id}`
+                                              ? 'bg-blue-50 text-blue-600 font-medium'
+                                              : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                                          }`}
+                                        >
+                                          <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                          </svg>
+                                          <span className="truncate text-sm">{d.title}</span>
+                                          {d.version > 0 && <span className="text-[10px] text-gray-400 ml-auto flex-shrink-0">v{d.version}</span>}
+                                        </Link>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })}
+                            {uncollectedDocs.map(doc => (
+                              <Link
+                                key={doc.id}
+                                to={`/doc/${doc.id}`}
+                                onClick={() => {
+                                  window.refreshSidebar?.()
+                                }}
+                                className={`flex items-center gap-2 py-1.5 px-3 rounded-lg transition-all ${
+                                  location.pathname === `/doc/${doc.id}` 
+                                    ? 'bg-blue-50 text-blue-600 font-medium' 
+                                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                                }`}
+                              >
+                                <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                <span className="truncate text-sm">{doc.title}</span>
+                                {doc.version > 0 && <span className="text-[10px] text-gray-400 ml-auto flex-shrink-0">v{doc.version}</span>}
+                              </Link>
+                            ))}
+                          </>
+                        )
+                      })()}
                     </div>
                   )}
                 </div>

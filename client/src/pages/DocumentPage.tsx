@@ -65,13 +65,16 @@ export default function DocumentPage() {
   const [visibility, setVisibility] = useState('private')
   const [commentCount, setCommentCount] = useState(0)
   const [viewCount, setViewCount] = useState(0)
+  const [versionCount, setVersionCount] = useState(0)
   const user = JSON.parse(localStorage.getItem('user') || '{}')
 
-  const loadVersions = async () => {
-    if (!doc) return;
+  const loadVersions = async (title?: string) => {
+    const t = title || doc?.title;
+    if (!t) return;
     try {
-      const res = await api.get(`/documents/versions/${encodeURIComponent(doc.title)}`)
+      const res = await api.get(`/documents/versions/${encodeURIComponent(t)}`)
       setVersions(res.data)
+      setVersionCount(res.data.length)
     } catch (err) {
       console.error(err)
     }
@@ -95,7 +98,8 @@ export default function DocumentPage() {
       setCategories(catRes.data)
       setAllTags(tagRes.data)
       setLoading(false)
-}).catch(() => setLoading(false))
+      loadVersions(docRes.data.title)
+    }).catch(() => setLoading(false))
     loadLikes()
     api.get(`/views/${id}/count`).then(res => setViewCount(res.data.count)).catch(() => {})
     api.post(`/views/${id}`).catch(() => {})
@@ -388,15 +392,22 @@ export default function DocumentPage() {
 
   const handleDocLinkClick = async (title: string, version?: number) => {
     try {
-      const res = await api.get('/documents')
-      const doc = version
-        ? res.data.find((d: any) => d.title === title && d.version === version)
-        : res.data.find((d: any) => d.title === title)
-      if (doc) {
-        navigate(`/doc/${doc.id}`)
+      if (version !== undefined) {
+        const res = await api.get(`/documents/versions/${encodeURIComponent(title)}`)
+        const doc = res.data.find((d: any) => d.version === version)
+        if (doc) {
+          navigate(`/doc/${doc.id}`)
+          return
+        }
       } else {
-        alert('文档不存在: ' + title + (version !== undefined ? `(v${version})` : ''))
+        const res = await api.get('/documents')
+        const doc = res.data.find((d: any) => d.title === title)
+        if (doc) {
+          navigate(`/doc/${doc.id}`)
+          return
+        }
       }
+      alert('文档不存在: ' + title + (version !== undefined ? `(v${version})` : ''))
     } catch (err) {
       alert('跳转失败')
     }
@@ -734,6 +745,23 @@ export default function DocumentPage() {
               <span className="text-sm font-medium">{commentCount > 0 ? commentCount : ''}</span>
             </button>
             
+            {(canEdit || versionCount > 1) && (
+              <button 
+                onClick={() => {
+                  loadVersions()
+                  setShowVersions(!showVersions)
+                  setSelectedVersion(null)
+                }}
+                title="版本"
+                className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-2 rounded-xl transition-colors ${showVersions ? 'bg-purple-50 text-purple-600' : 'text-gray-600 hover:bg-gray-100'}`}
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span className="text-sm font-medium hidden md:inline">{versionCount}</span>
+              </button>
+            )}
+            
             {canEdit && (
               <>
                 {isEditing ? (
@@ -750,33 +778,6 @@ export default function DocumentPage() {
                       className="px-5 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-medium rounded-xl hover:from-blue-600 hover:to-indigo-700 transition-all shadow-lg shadow-blue-500/25 disabled:opacity-50"
                     >
                       {saving ? '保存中...' : '保存'}
-                    </button>
-                    <button 
-                      onClick={() => {
-                        loadVersions()
-                        setShowVersions(!showVersions)
-                        setSelectedVersion(null)
-                      }}
-                      className={`px-3 py-2 rounded-xl transition-colors ${showVersions ? 'bg-purple-50 text-purple-600' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                      历史
-                    </button>
-                    <button
-                      onClick={async () => {
-                        try {
-                          await api.post(`/documents/${id}/versions`)
-                          alert('已创建新版本')
-                          loadVersions()
-                        } catch (err: any) {
-                          alert(err.response?.data?.error || '创建版本失败')
-                        }
-                      }}
-                      className="px-3 py-2 rounded-xl text-gray-600 hover:bg-gray-100 transition-colors"
-                      title="另存为新版本"
-                    >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
                     </button>
                   </>
                 ) : (
@@ -1144,19 +1145,38 @@ export default function DocumentPage() {
         )}
         
         {showVersions && (
-          <div className={`${selectedVersion ? 'w-96' : 'w-80'} bg-white border-l border-gray-100 flex flex-col h-full`}>
-            <div className="p-4 border-b border-gray-100 shrink-0">
+          <div className="w-80 bg-white border-l border-gray-100 flex flex-col h-full">
+            <div className="p-4 border-b border-gray-100 shrink-0 space-y-2">
               <div className="flex items-center justify-between">
-                <h3 className="font-medium text-gray-900">版本历史</h3>
+                <h3 className="font-medium text-gray-900">版本</h3>
                 <button onClick={() => { setShowVersions(false); setSelectedVersion(null) }} className="p-1 text-gray-400 hover:text-gray-600">
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
               </div>
+              {canEdit && (
+                <button
+                  onClick={async () => {
+                    try {
+                      await api.post(`/documents/${id}/versions`)
+                      alert('已创建新版本')
+                      loadVersions()
+                    } catch (err: any) {
+                      alert(err.response?.data?.error || '创建版本失败')
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-sm font-medium text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  另存为新版本
+                </button>
+              )}
             </div>
             
-            <div className="overflow-auto p-4 space-y-3" style={{ height: selectedVersion ? `${splitPos}%` : '100%' }}>
+            <div className="overflow-auto p-4 space-y-3 flex-1">
               {versions.length === 0 ? (
                 <p className="text-sm text-gray-400 text-center py-8">暂无版本记录</p>
               ) : (
@@ -1164,36 +1184,38 @@ export default function DocumentPage() {
                   <div 
                     key={v.id} 
                     onClick={() => {
-                      setSelectedVersion(v)
+                      if (v.id === doc?.id) {
+                        setSelectedVersion(selectedVersion?.id === v.id ? null : v)
+                      } else {
+                        navigate(`/doc/${v.id}`)
+                      }
                     }}
-                    className={`p-3 rounded-lg cursor-pointer transition-colors ${selectedVersion?.id === v.id ? 'bg-purple-50 border border-purple-200' : 'bg-gray-50 hover:bg-gray-100'}`}
+                    className={`p-3 rounded-lg cursor-pointer transition-colors ${v.id === doc?.id ? 'bg-purple-50 border border-purple-200' : 'bg-gray-50 hover:bg-gray-100'}`}
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className="flex items-center gap-2">
                         <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${v.version === 0 ? 'bg-gray-100 text-gray-500' : 'bg-purple-100 text-purple-700'}`}>v{v.version}</span>
                         <span className="text-sm text-gray-500">{v.created_at}</span>
                       </span>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (!doc) return
-                          if (v.id === doc.id) {
-                            alert('当前就是此版本')
-                            return
-                          }
-                          if (confirm(`确定要恢复到这个版本 (v${v.version}) 吗？当前内容将被覆盖。`)) {
-                            setContent(v.content || '')
-                            setShowVersions(false)
-                            setSelectedVersion(null)
-                            alert('已恢复到此版本，请保存')
-                          }
-                        }}
-                        className="text-xs text-blue-600 hover:text-blue-700"
-                      >
-                        恢复到此版本
-                      </button>
+                      {canEdit && v.id !== doc?.id && (
+                        <button 
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            if (!confirm(`确定删除版本 v${v.version}？`)) return
+                            try {
+                              await api.delete(`/documents/${v.id}`)
+                              loadVersions()
+                            } catch (err: any) {
+                              alert(err.response?.data?.error || '删除失败')
+                            }
+                          }}
+                          className="text-xs text-red-500 hover:text-red-600"
+                        >
+                          删除
+                        </button>
+                      )}
                     </div>
-                    <p className="text-sm text-gray-600 truncate">{v.content?.substring(0, 100) || '(空)'}</p>
+                    <p className="text-sm text-gray-600 truncate">版本 {v.version} — {v.updated_at}</p>
                   </div>
                 ))
               )}

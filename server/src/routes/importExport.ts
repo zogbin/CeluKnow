@@ -66,9 +66,9 @@ router.post('/import', authMiddleware, async (req: AuthRequest, res: Response) =
         
         let categoryId: number | null = null;
         
-        // 按用户查询分类，获取 id 最小的（最早创建的）
-        const categories = run('SELECT MIN(id) as id FROM categories WHERE name = ? AND user_id = ? GROUP BY name', [folder, userId]) as any[];
-        if (categories.length > 0 && categories[0].id) {
+        // 按用户或系统分类查询
+        const categories = run('SELECT id FROM categories WHERE name = ? AND (user_id = ? OR is_system = 1) ORDER BY is_system ASC LIMIT 1', [folder, userId]) as any[];
+        if (categories.length > 0) {
           categoryId = categories[0].id;
         } else {
           categoryId = runInsert('INSERT INTO categories (name, user_id, color, icon) VALUES (?, ?, ?, ?)', 
@@ -98,6 +98,17 @@ const now = getLocalNow()
         );
         
         runUpdate('INSERT INTO document_categories (document_id, category_id) VALUES (?, ?)', [docId, categoryId]);
+        
+        if (frontMatter.collection) {
+          const cols = run('SELECT id FROM collections WHERE category_id = ? AND name = ?', [categoryId, frontMatter.collection]) as any[];
+          let colId: number;
+          if (cols.length > 0) {
+            colId = cols[0].id;
+          } else {
+            colId = runInsert('INSERT INTO collections (category_id, name, user_id) VALUES (?, ?, ?)', [categoryId, frontMatter.collection, userId]);
+          }
+          runUpdate('UPDATE document_categories SET collection_id = ? WHERE document_id = ?', [colId, docId]);
+        }
         
         if (tags) {
           const tagList = tags.split(',').map((t: string) => t.trim()).filter(Boolean);
@@ -153,8 +164,8 @@ router.post('/import/zip', authMiddleware, async (req: AuthRequest, res: Respons
       let categoryId = folderMap.get(folder);
       
       if (categoryId === undefined) {
-        const categories = run('SELECT MIN(id) as id FROM categories WHERE name = ? AND user_id = ? GROUP BY name', [folder, userId]) as any[];
-        if (categories.length > 0 && categories[0].id) {
+        const categories = run('SELECT id FROM categories WHERE name = ? AND (user_id = ? OR is_system = 1) ORDER BY is_system ASC LIMIT 1', [folder, userId]) as any[];
+        if (categories.length > 0) {
           categoryId = categories[0].id;
         } else {
           categoryId = runInsert('INSERT INTO categories (name, user_id, color, icon) VALUES (?, ?, ?, ?)', 
@@ -210,6 +221,17 @@ folderMap.set(categoryFromFm, categoryId);
         );
         
         runUpdate('INSERT INTO document_categories (document_id, category_id) VALUES (?, ?)', [docId, categoryId]);
+        
+        if (frontMatter.collection) {
+          const cols = run('SELECT id FROM collections WHERE category_id = ? AND name = ?', [categoryId, frontMatter.collection]) as any[];
+          let colId: number;
+          if (cols.length > 0) {
+            colId = cols[0].id;
+          } else {
+            colId = runInsert('INSERT INTO collections (category_id, name, user_id) VALUES (?, ?, ?)', [categoryId, frontMatter.collection, userId]);
+          }
+          runUpdate('UPDATE document_categories SET collection_id = ? WHERE document_id = ?', [colId, docId]);
+        }
         
         if (tags) {
           const tagList = tags.split(',').map((t: string) => t.trim()).filter(Boolean);
@@ -275,6 +297,16 @@ router.get('/export', authMiddleware, (req: AuthRequest, res: Response) => {
       GROUP BY d.id
     `, params) as any[];
 
+    // Populate collection_name for each doc
+    for (const doc of docs) {
+      const colRes = run(`
+        SELECT col.name FROM collections col
+        JOIN document_categories dc ON col.id = dc.collection_id
+        WHERE dc.document_id = ? AND dc.category_id = ?
+      `, [doc.id, doc.category_id]) as any[];
+      doc.collection_name = colRes.length > 0 ? colRes[0].name : '';
+    }
+
     const categoryMap = new Map<string, any[]>();
     const uncategorized: any[] = [];
 
@@ -289,6 +321,7 @@ router.get('/export', authMiddleware, (req: AuthRequest, res: Response) => {
         content: doc.content,
         tags: doc.tags,
         category: catName,
+        collection: doc.collection_name || '',
         visibility: doc.visibility,
         created_at: doc.created_at,
         updated_at: doc.updated_at,
@@ -306,6 +339,7 @@ router.get('/export', authMiddleware, (req: AuthRequest, res: Response) => {
 title: ${doc.title}
 version: ${doc.version || 0}
 category: ${catName}
+collection: ${doc.collection}
 tags: ${doc.tags || ''}
 visibility: ${doc.visibility}
 created_at: ${doc.created_at}
@@ -314,7 +348,9 @@ author: ${doc.author}
 ---
 
 `;
-          zip.addFile(`${catName}/${doc.title}.md`, Buffer.from(frontMatter + doc.content));
+          const docLabel = doc.version > 0 ? `${doc.title}_v${doc.version}` : doc.title;
+          const filePath = doc.collection ? `${catName}/${doc.collection}/${docLabel}.md` : `${catName}/${docLabel}.md`;
+          zip.addFile(filePath, Buffer.from(frontMatter + doc.content));
         }
       }
       const labelName = category_id
@@ -333,6 +369,7 @@ author: ${doc.author}
 title: ${doc.title}
 version: ${doc.version || 0}
 category: ${category}
+collection: ${doc.collection}
 tags: ${doc.tags || ''}
 visibility: ${doc.visibility}
 created_at: ${doc.created_at}
@@ -341,7 +378,8 @@ author: ${doc.author}
 ---
 
 `;
-        result[category][`${doc.title}.md`] = frontMatter + doc.content;
+        const docLabel = doc.version > 0 ? `${doc.title}_v${doc.version}` : doc.title;
+        result[category][`${docLabel}.md`] = frontMatter + doc.content;
       }
     }
 
@@ -351,7 +389,7 @@ author: ${doc.author}
   }
 });
 
-// Export single document as downloadable markdown
+// Export single document (all versions) as downloadable ZIP
 router.get('/export/:id', authMiddleware, (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.id;
@@ -372,10 +410,38 @@ router.get('/export/:id', authMiddleware, (req: AuthRequest, res: Response) => {
     if (!doc) {
       return res.status(404).json({ error: '文档不存在' });
     }
-    const frontMatter = `---
+
+    const colRes = run('SELECT col.name FROM collections col JOIN document_categories dc ON col.id = dc.collection_id WHERE dc.document_id = ?', [doc.id]) as any[];
+    doc.collection_name = colRes.length > 0 ? colRes[0].name : '';
+
+    // Find all versions of this document title
+    const allVersions = run(`
+      SELECT d.*, u.username as author_name,
+      GROUP_CONCAT(DISTINCT t.name) as tags,
+      c.name as category
+      FROM documents d
+      LEFT JOIN users u ON d.author_id = u.id
+      LEFT JOIN document_tags dt ON d.id = dt.document_id
+      LEFT JOIN tags t ON dt.tag_id = t.id
+      LEFT JOIN document_categories dc ON d.id = dc.document_id
+      LEFT JOIN categories c ON dc.category_id = c.id
+      WHERE d.title = ? AND (d.visibility = 'public' OR d.author_id = ?)
+      GROUP BY d.id
+      ORDER BY d.version ASC
+    `, [doc.title, userId]) as any[];
+
+    for (const v of allVersions) {
+      const colRes = run('SELECT col.name FROM collections col JOIN document_categories dc ON col.id = dc.collection_id WHERE dc.document_id = ?', [v.id]) as any[];
+      v.collection_name = colRes.length > 0 ? colRes[0].name : '';
+    }
+
+    if (allVersions.length === 1) {
+      // Single version - direct download
+      const frontMatter = `---
 title: ${doc.title}
 version: ${doc.version || 0}
 category: ${doc.category || ''}
+collection: ${doc.collection_name || ''}
 tags: ${doc.tags || ''}
 visibility: ${doc.visibility}
 created_at: ${doc.created_at}
@@ -384,10 +450,35 @@ author: ${doc.author_name}
 ---
 
 `;
-    const content = frontMatter + (doc.content || '');
-    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(doc.title)}.md"`);
-    res.send(content);
+      const content = frontMatter + (doc.content || '');
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(doc.title)}.md"`);
+      return res.send(content);
+    }
+
+    // Multiple versions - ZIP
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    for (const v of allVersions) {
+      const frontMatter = `---
+title: ${v.title}
+version: ${v.version || 0}
+category: ${v.category || ''}
+collection: ${v.collection_name || ''}
+tags: ${v.tags || ''}
+visibility: ${v.visibility}
+created_at: ${v.created_at}
+updated_at: ${v.updated_at}
+author: ${v.author_name}
+---
+
+`;
+      const label = v.version > 0 ? `${v.title}_v${v.version}` : v.title;
+      zip.addFile(`${label}.md`, Buffer.from(frontMatter + (v.content || '')));
+    }
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(doc.title)}.zip"`);
+    return res.send(zip.toBuffer());
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

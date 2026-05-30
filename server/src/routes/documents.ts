@@ -128,7 +128,7 @@ router.get('/sidebar-data', authMiddleware, (req: AuthRequest, res: Response) =>
 
   for (const cat of categories) {
     const docs = run(`
-      SELECT d.id, d.title, d.version, d.visibility, dc.sort_order
+      SELECT d.id, d.title, d.version, d.author_id, d.visibility, dc.sort_order
       FROM documents d
       JOIN document_categories dc ON d.id = dc.document_id
       WHERE dc.category_id = ? AND (d.visibility = 'public' OR d.author_id = ?)
@@ -137,7 +137,7 @@ router.get('/sidebar-data', authMiddleware, (req: AuthRequest, res: Response) =>
     // Keep only latest version per title+author
     const latestMap = new Map<string, any>();
     for (const d of docs) {
-      const key = `${d.title}|${userId}`;
+      const key = `${d.title}|${d.author_id}`;
       const prev = latestMap.get(key);
       if (!prev || d.version > prev.version) latestMap.set(key, d);
     }
@@ -153,13 +153,35 @@ router.get('/sidebar-data', authMiddleware, (req: AuthRequest, res: Response) =>
   const unassigned = allDocs.filter((d: any) => !assignedDocIds.has(d.id));
   const latestUncat = new Map<string, any>();
   for (const d of unassigned) {
-    const key = `${d.title}|${userId}`;
+    const key = `${d.title}|${d.author_id}`;
     const prev = latestUncat.get(key);
     if (!prev || d.version > prev.version) latestUncat.set(key, d);
   }
   const uncategorized = [...latestUncat.values()];
 
-  res.json({ categories, categoryDocs, uncategorized });
+  const categoryCollections: Record<number, any[]> = {};
+  for (const cat of categories) {
+    const cols = run('SELECT * FROM collections WHERE category_id = ? ORDER BY sort_order ASC, name ASC', [cat.id]) as any[];
+    for (const col of cols) {
+      const colDocs = run(`
+        SELECT d.id, d.title, d.version, d.author_id, d.visibility, dc.collection_sort_order
+        FROM documents d
+        JOIN document_categories dc ON d.id = dc.document_id
+        WHERE dc.collection_id = ? AND (d.visibility = 'public' OR d.author_id = ?)
+        ORDER BY dc.collection_sort_order ASC, d.updated_at DESC
+      `, [col.id, userId]) as any[];
+      // Keep only latest version per title
+      const latestMap = new Map<string, any>();
+      for (const d of colDocs) {
+        const key = `${d.title}|${d.author_id}`;
+        const prev = latestMap.get(key);
+        if (!prev || d.version > prev.version) latestMap.set(key, d);
+      }
+      (col as any).documents = [...latestMap.values()].sort((a: any, b: any) => a.collection_sort_order - b.collection_sort_order);
+    }
+    categoryCollections[cat.id] = cols;
+  }
+  res.json({ categories, categoryDocs, uncategorized, categoryCollections });
 });
 
 // List all versions of a document by title
@@ -402,7 +424,9 @@ router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
     GROUP_CONCAT(DISTINCT c.id) as category_ids,
     COALESCE((SELECT COUNT(*) FROM document_views WHERE document_id = d.id), 0) as view_count,
     COALESCE((SELECT COUNT(*) FROM comments WHERE document_id = d.id), 0) as comment_count,
-    COALESCE((SELECT 1 FROM likes WHERE document_id = d.id AND user_id = ?), 0) as liked
+    COALESCE((SELECT 1 FROM likes WHERE document_id = d.id AND user_id = ?), 0) as liked,
+    (SELECT dc2.collection_id FROM document_categories dc2 WHERE dc2.document_id = d.id AND dc2.collection_id IS NOT NULL LIMIT 1) as collection_id,
+    (SELECT col2.name FROM document_categories dc2 LEFT JOIN collections col2 ON dc2.collection_id = col2.id WHERE dc2.document_id = d.id AND dc2.collection_id IS NOT NULL LIMIT 1) as collection_name
     FROM documents d
     LEFT JOIN users u ON d.author_id = u.id
     LEFT JOIN document_tags dt ON d.id = dt.document_id
@@ -705,13 +729,16 @@ router.delete('/:id', authMiddleware, (req: AuthRequest, res: Response) => {
   }
   const docTitle = doc.title;
 
-  // Remove wiki references to this document from other documents
-  const refDocs = run('SELECT id, content FROM documents WHERE id != ? AND content LIKE ?', [req.params.id, `%[[${escapeSqlLike(docTitle)}]]%`]);
-  for (const ref of refDocs) {
-    if (!ref.content) continue;
-    const updatedContent = ref.content.replaceAll(`[[${docTitle}]]`, docTitle);
-    if (updatedContent !== ref.content) {
-      runUpdate('UPDATE documents SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [updatedContent, ref.id]);
+  // Only clean up wiki references if no other documents with this title exist
+  const othersWithTitle = run('SELECT id FROM documents WHERE title = ? AND id != ?', [docTitle, req.params.id]);
+  if (othersWithTitle.length === 0) {
+    const refDocs = run('SELECT id, content FROM documents WHERE id != ? AND content LIKE ?', [req.params.id, `%[[${escapeSqlLike(docTitle)}]]%`]);
+    for (const ref of refDocs) {
+      if (!ref.content) continue;
+      const updatedContent = ref.content.replaceAll(`[[${docTitle}]]`, docTitle);
+      if (updatedContent !== ref.content) {
+        runUpdate('UPDATE documents SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [updatedContent, ref.id]);
+      }
     }
   }
 
@@ -719,6 +746,46 @@ router.delete('/:id', authMiddleware, (req: AuthRequest, res: Response) => {
   runUpdate('DELETE FROM documents WHERE id = ?', [req.params.id]);
   try { storage.deleteDocument(doc.folder_path, doc.title); } catch {}
   rebuildUserIndex(req.user!.id);
+  res.json({ success: true });
+});
+
+// Set document's collection (also updates all versions with same title+author)
+router.post('/:id/collection', authMiddleware, (req: AuthRequest, res: Response) => {
+  const { collection_id } = req.body;
+  const docs = run('SELECT * FROM documents WHERE id = ?', [req.params.id]) as any[];
+  if (docs.length === 0) return res.status(404).json({ error: '文档不存在' });
+  const doc = docs[0];
+  if (req.user!.role !== 'admin' && doc.author_id !== req.user!.id) return res.status(403).json({ error: '权限不足' });
+  const col = run('SELECT c.*, cat.is_system FROM collections c JOIN categories cat ON c.category_id = cat.id WHERE c.id = ?', [collection_id]) as any[];
+  if (col.length === 0) return res.status(404).json({ error: '合集不存在' });
+  if (col[0].is_system && req.user!.role !== 'admin') return res.status(403).json({ error: '权限不足' });
+  // Find all versions of this document
+  const allVersions = run('SELECT id FROM documents WHERE title = ? AND author_id = ?', [doc.title, doc.author_id]) as any[];
+  for (const v of allVersions) {
+    const dc = run('SELECT * FROM document_categories WHERE document_id = ?', [v.id]) as any[];
+    if (dc.length > 0 && dc[0].category_id !== col[0].category_id) return res.status(400).json({ error: '文档的分类与合集不匹配' });
+    if (dc.length > 0) {
+      runUpdate('UPDATE document_categories SET collection_id = ? WHERE document_id = ?', [collection_id, v.id]);
+    } else {
+      runInsert('INSERT INTO document_categories (document_id, collection_id, category_id) VALUES (?, ?, ?)', [v.id, collection_id, col[0].category_id]);
+    }
+  }
+  res.json({ success: true });
+});
+
+// Remove document from collection (also removes all versions with same title+author)
+router.delete('/:id/collection', authMiddleware, (req: AuthRequest, res: Response) => {
+  const docs = run('SELECT * FROM documents WHERE id = ?', [req.params.id]) as any[];
+  if (docs.length === 0) return res.status(404).json({ error: '文档不存在' });
+  const doc = docs[0];
+  // Check if document's collection belongs to a system category
+  const cols = run(`SELECT cat.is_system FROM document_categories dc JOIN categories cat ON dc.category_id = cat.id WHERE dc.document_id = ? AND dc.collection_id IS NOT NULL`, [req.params.id]) as any[];
+  if (cols.length > 0 && cols[0].is_system && req.user!.role !== 'admin') return res.status(403).json({ error: '权限不足' });
+  // Remove collection from all versions
+  const allVersions = run('SELECT id FROM documents WHERE title = ? AND author_id = ?', [doc.title, doc.author_id]) as any[];
+  for (const v of allVersions) {
+    runUpdate('UPDATE document_categories SET collection_id = NULL, collection_sort_order = 0 WHERE document_id = ?', [v.id]);
+  }
   res.json({ success: true });
 });
 

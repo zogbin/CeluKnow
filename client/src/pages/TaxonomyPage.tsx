@@ -8,6 +8,7 @@ interface Category {
   color: string
   icon: string
   created_at?: string
+  is_system?: number
 }
 
 interface Tag {
@@ -37,18 +38,14 @@ export default function TaxonomyPage() {
   const [tagName, setTagName] = useState('')
   
   const [saving, setSaving] = useState(false)
-  const [catSort, setCatSort] = useState<'name' | 'created_at'>('name')
-  const [tagSort, setTagSort] = useState<'name' | 'created_at'>('name')
   const navigate = useNavigate()
+  const user = JSON.parse(localStorage.getItem('user') || '{}')
+  const isAdmin = user.role === 'admin'
 
-  const sortedCategories = [...categories].sort((a, b) => {
-    if (catSort === 'name') return a.name.localeCompare(b.name)
-    return (a.created_at || '').localeCompare(b.created_at || '')
-  })
-  const sortedTags = [...tags].sort((a, b) => {
-    if (tagSort === 'name') return a.name.localeCompare(b.name)
-    return (a.created_at || '').localeCompare(b.created_at || '')
-  })
+  const sortedCategories = [...categories]
+    .filter(c => isAdmin || !c.is_system)
+    .sort((a, b) => a.name.localeCompare(b.name))
+  const sortedTags = [...tags].sort((a, b) => a.name.localeCompare(b.name))
 
   const [expandedCategoryId, setExpandedCategoryId] = useState<number | null>(null)
   const [expandedTagId, setExpandedTagId] = useState<number | null>(null)
@@ -59,6 +56,16 @@ export default function TaxonomyPage() {
   const [modalType, setModalType] = useState<'category' | 'tag' | null>(null)
   const [modalEntityId, setModalEntityId] = useState<number | null>(null)
   const [selectedDocIds, setSelectedDocIds] = useState<Set<number>>(new Set())
+  const [showCollAssign, setShowCollAssign] = useState(false)
+  const [assignColId, setAssignColId] = useState<number | null>(null)
+  const [assignColDocs, setAssignColDocs] = useState<any[]>([])
+  const [assignSelectedIds, setAssignSelectedIds] = useState<Set<number>>(new Set())
+  const [categoryCollections, setCategoryCollections] = useState<Record<number, any[]>>({})
+  const [expandedCollections, setExpandedCollections] = useState<Set<number>>(new Set())
+  const [showCollModal, setShowCollModal] = useState(false)
+  const [collName, setCollName] = useState('')
+  const [renamingColl, setRenamingColl] = useState<any>(null)
+  const [renameName, setRenameName] = useState('')
 
   useEffect(() => {
     loadData()
@@ -141,14 +148,24 @@ export default function TaxonomyPage() {
     }
   }
 
+  const latestPerTitle = (docs: any[]) => {
+    const map = new Map<string, any>()
+    for (const d of docs) {
+      const key = `${d.title}|${d.author_id || 0}`
+      const prev = map.get(key)
+      if (!prev || d.version > prev.version) map.set(key, d)
+    }
+    return [...map.values()]
+  }
+
   const loadCategoryOrTagDocs = async (type: 'category' | 'tag', id: number) => {
     try {
       const path = type === 'category' ? `/categories/${id}/documents` : `/tags/${id}/documents`
       const res = await api.get(path)
       if (type === 'category') {
-        setCategoryDocs(prev => ({ ...prev, [id]: res.data }))
+        setCategoryDocs(prev => ({ ...prev, [id]: latestPerTitle(res.data) }))
       } else {
-        setTagDocs(prev => ({ ...prev, [id]: res.data }))
+        setTagDocs(prev => ({ ...prev, [id]: latestPerTitle(res.data) }))
       }
     } catch {}
   }
@@ -159,7 +176,7 @@ export default function TaxonomyPage() {
     try {
       const res = await api.get('/documents')
       const docs = Array.isArray(res.data) ? res.data : (res.data.docs || [])
-      setAllDocuments(docs)
+      setAllDocuments(latestPerTitle(docs))
       const assigned = type === 'category' ? (categoryDocs[id] || []) : (tagDocs[id] || [])
       const assignedIds = new Set(assigned.map((d: any) => d.id))
       setSelectedDocIds(assignedIds)
@@ -257,6 +274,124 @@ export default function TaxonomyPage() {
     return icons[iconName] || icons.folder
   }
 
+  const toggleCollection = (colId: number) => {
+    const newSet = new Set(expandedCollections)
+    if (newSet.has(colId)) newSet.delete(colId)
+    else newSet.add(colId)
+    setExpandedCollections(newSet)
+  }
+
+  const loadCollections = async (catId: number) => {
+    try {
+      const res = await api.get(`/categories/${catId}/collections`)
+      setCategoryCollections(prev => ({ ...prev, [catId]: res.data }))
+    } catch {}
+  }
+
+  const handleCreateCollection = async () => {
+    if (!collName.trim() || !expandedCategoryId) return
+    try {
+      await api.post('/collections', { category_id: expandedCategoryId, name: collName })
+      setShowCollModal(false)
+      setCollName('')
+      loadCollections(expandedCategoryId)
+    } catch (err: any) {
+      alert(err.response?.data?.error || '创建失败')
+    }
+  }
+
+  const handleRenameCollection = async (colId: number) => {
+    if (!renameName.trim()) return
+    try {
+      await api.put(`/collections/${colId}`, { name: renameName })
+      setRenamingColl(null)
+      setRenameName('')
+      if (expandedCategoryId) loadCollections(expandedCategoryId)
+    } catch (err: any) {
+      alert(err.response?.data?.error || '重命名失败')
+    }
+  }
+
+  const handleDeleteCollection = async (colId: number) => {
+    if (!confirm('确定删除该合集？文档不会被删除。')) return
+    try {
+      await api.delete(`/collections/${colId}`)
+      if (expandedCategoryId) {
+        loadCollections(expandedCategoryId)
+        loadCategoryOrTagDocs('category', expandedCategoryId)
+      }
+    } catch {}
+  }
+
+  const handleMoveCollDoc = async (colId: number, docId: number, fromIdx: number, toIdx: number) => {
+    if (!expandedCategoryId) return
+    const cols = categoryCollections[expandedCategoryId] || []
+    const col = cols.find((c: any) => c.id === colId)
+    if (!col) return
+    const docs = col.documents || []
+    if (toIdx < 0 || toIdx >= docs.length) return
+    const docIds = docs.map((d: any) => d.id)
+    ;[docIds[fromIdx], docIds[toIdx]] = [docIds[toIdx], docIds[fromIdx]]
+    try {
+      await api.put(`/collections/${colId}/reorder`, { doc_ids: docIds })
+      loadCollections(expandedCategoryId)
+    } catch {}
+  }
+
+  const removeDocFromCollection = async (colId: number, docId: number) => {
+    try {
+      await api.delete(`/documents/${docId}/collection`)
+      if (expandedCategoryId) {
+        loadCollections(expandedCategoryId)
+        loadCategoryOrTagDocs('category', expandedCategoryId)
+      }
+    } catch {}
+  }
+
+  const openCollAssign = async (colId: number) => {
+    setAssignColId(colId)
+    try {
+      const catId = expandedCategoryId!
+      const res = await api.get(`/categories/${catId}/documents`)
+      const docs = Array.isArray(res.data) ? res.data : (res.data.docs || [])
+      // Only show unassigned docs or docs already in this collection
+      const filtered = latestPerTitle(docs).filter((d: any) => !d.collection_id || d.collection_id === colId)
+      setAssignColDocs(filtered)
+      // Pre-select docs already in this collection
+      const cols: any[] = categoryCollections[expandedCategoryId!] || []
+      const col: any = cols.find((c: any) => c.id === colId)
+      const colDocIds: Set<number> = col ? new Set((col.documents || []).map((d: any) => d.id)) : new Set()
+      setAssignSelectedIds(colDocIds)
+      setShowCollAssign(true)
+    } catch {}
+  }
+
+  const handleConfirmCollAssign = async () => {
+    if (!assignColId || !expandedCategoryId) return
+    try {
+      const cols = categoryCollections[expandedCategoryId] || []
+      const col = cols.find((c: any) => c.id === assignColId)
+      const currentIds: Set<number> = col ? new Set((col.documents || []).map((d: any) => d.id)) : new Set()
+
+      // Remove docs that were deselected
+      for (const docId of currentIds) {
+        if (!assignSelectedIds.has(docId)) {
+          await api.delete(`/documents/${docId}/collection`).catch(() => {})
+        }
+      }
+      // Add newly selected docs
+      for (const docId of assignSelectedIds) {
+        if (!currentIds.has(docId)) {
+          await api.post(`/documents/${docId}/collection`, { collection_id: assignColId }).catch(() => {})
+        }
+      }
+    } catch {}
+    setShowCollAssign(false)
+    setAssignColId(null)
+    loadCollections(expandedCategoryId)
+    loadCategoryOrTagDocs('category', expandedCategoryId)
+  }
+
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-8">
@@ -293,10 +428,6 @@ export default function TaxonomyPage() {
       {activeTab === 'categories' && (
         <div>
           <div className="flex justify-end gap-3 mb-4">
-            <div className="flex bg-gray-100 rounded-xl p-0.5">
-              <button onClick={() => setCatSort('name')} className={`px-3 py-1.5 text-sm rounded-lg transition-all ${catSort === 'name' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>名称</button>
-              <button onClick={() => setCatSort('created_at')} className={`px-3 py-1.5 text-sm rounded-lg transition-all ${catSort === 'created_at' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>创建时间</button>
-            </div>
             <button 
               onClick={() => { setEditingCat(null); setCatName(''); setCatColor(defaultColors[0]); setCatIcon(defaultIcons[0]); setShowCatModal(true); }}
               className="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-medium rounded-xl hover:from-blue-600 hover:to-indigo-700 transition-all flex items-center gap-2"
@@ -319,6 +450,7 @@ export default function TaxonomyPage() {
                     } else {
                       setExpandedCategoryId(cat.id)
                       loadCategoryOrTagDocs('category', cat.id)
+                      loadCollections(cat.id)
                     }
                   }}
                 >
@@ -364,8 +496,83 @@ export default function TaxonomyPage() {
           </div>
 
           {expandedCategoryId && (
-            <div className="mt-3 pl-4 border-l-2 border-gray-200 space-y-1">
-              {(categoryDocs[expandedCategoryId] || []).map((doc, idx, arr) => (
+            <div className="mt-3 pl-4 border-l-2 border-gray-200 space-y-3">
+              {(() => {
+                const expandedCat = categories.find(c => c.id === expandedCategoryId)
+                const showCollections = expandedCat && (!expandedCat.is_system || isAdmin)
+                if (!showCollections) return null
+                return (
+                  <>
+              {/* Collections */}
+              {(categoryCollections[expandedCategoryId] || []).map(col => {
+                const colDocs = col.documents || []
+                const isColExpanded = expandedCollections.has(col.id)
+                return (
+                  <div key={col.id}>
+                    <div className="flex items-center justify-between py-1 px-2 rounded hover:bg-gray-50 group cursor-pointer" onClick={() => toggleCollection(col.id)}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <svg className={`w-4 h-4 text-gray-400 transition-transform shrink-0 ${isColExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                        <svg className="w-4 h-4 text-yellow-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                        </svg>
+                        <span className="text-sm font-medium text-gray-700 truncate">{col.name}</span>
+                        <span className="text-xs text-gray-400 shrink-0">({colDocs.length})</span>
+                      </div>
+                      {renamingColl?.id === col.id ? (
+                        <div className="flex gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                          <input
+                            type="text"
+                            value={renameName}
+                            onChange={(e) => setRenameName(e.target.value)}
+                            className="w-24 px-2 py-0.5 text-xs border border-gray-200 rounded"
+                            autoFocus
+                            onKeyDown={(e) => e.key === 'Enter' && handleRenameCollection(col.id)}
+                          />
+                          <button onClick={() => handleRenameCollection(col.id)} className="p-0.5 hover:bg-green-100 rounded"><svg className="w-3.5 h-3.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg></button>
+                          <button onClick={() => setRenamingColl(null)} className="p-0.5 hover:bg-gray-200 rounded"><svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                        </div>
+                      ) : (
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={e => e.stopPropagation()}>
+                          <button onClick={() => openCollAssign(col.id)} className="p-1 hover:bg-blue-100 rounded" title="分配文档到此合集"><svg className="w-3.5 h-3.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg></button>
+                          <button onClick={() => { setRenamingColl(col); setRenameName(col.name); }} className="p-1 hover:bg-gray-200 rounded"><svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
+                          <button onClick={() => handleDeleteCollection(col.id)} className="p-1 hover:bg-red-100 rounded"><svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                        </div>
+                      )}
+                    </div>
+                    {isColExpanded && colDocs.length > 0 && (
+                      <div className="ml-8 space-y-1">
+                        {colDocs.map((doc: any, idx: number, arr: any[]) => (
+                          <div key={doc.id} className="flex items-center justify-between py-1 px-2 rounded hover:bg-gray-50 group">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                                <button onClick={(e) => { e.stopPropagation(); handleMoveCollDoc(col.id, doc.id, idx, idx - 1); }} disabled={idx === 0} className="disabled:opacity-20 p-0.5 hover:bg-gray-200 rounded">
+                                  <svg className="w-3 h-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
+                                </button>
+                                <button onClick={(e) => { e.stopPropagation(); handleMoveCollDoc(col.id, doc.id, idx, idx + 1); }} disabled={idx === arr.length - 1} className="disabled:opacity-20 p-0.5 hover:bg-gray-200 rounded">
+                                  <svg className="w-3 h-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                                </button>
+                              </div>
+                              <Link to={`/doc/${doc.id}`} className="text-sm text-blue-600 hover:text-blue-800 truncate">{doc.title}</Link>
+                              {doc.version > 0 && <span className="text-[10px] text-gray-400 ml-auto flex-shrink-0">v{doc.version}</span>}
+                            </div>
+                            <button onClick={() => removeDocFromCollection(col.id, doc.id)} className="text-gray-400 hover:text-red-500 shrink-0 ml-2">
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {isColExpanded && colDocs.length === 0 && (
+                      <div className="ml-8 text-xs text-gray-400 py-1 px-2">暂无文档</div>
+                    )}
+                  </div>
+                )
+              })}
+
+              {/* Documents without collection */}
+              {(categoryDocs[expandedCategoryId] || []).filter((d: any) => !d.collection_id).map((doc, idx, arr) => (
                 <div key={doc.id} className="flex items-center justify-between py-1 px-2 rounded hover:bg-gray-50 group">
                   <div className="flex items-center gap-2 min-w-0">
                     <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
@@ -379,17 +586,17 @@ export default function TaxonomyPage() {
                     <Link to={`/doc/${doc.id}`} className="text-sm text-blue-600 hover:text-blue-800 truncate">{doc.title}</Link>
                   </div>
                   <button onClick={() => handleRemoveCategoryDoc(expandedCategoryId, doc.id)} className="text-gray-400 hover:text-red-500 shrink-0 ml-2">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                   </button>
                 </div>
               ))}
-              <button onClick={() => openDocModal('category', expandedCategoryId)} className="text-xs text-blue-500 hover:text-blue-700 mt-1">
-                + 分配文档
-              </button>
-              <button
-                onClick={async () => {
+              <div className="flex gap-3 mt-2">
+                <button onClick={() => { setShowCollModal(true); setCollName(''); }} className="text-xs text-yellow-600 hover:text-yellow-800 flex items-center gap-1">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                  新建合集
+                </button>
+                <button onClick={() => openDocModal('category', expandedCategoryId)} className="text-xs text-blue-500 hover:text-blue-700">+ 分配文档</button>
+                <button onClick={async () => {
                   try {
                     const res = await api.get(`/import-export/export?category_id=${expandedCategoryId}`, { responseType: 'blob' })
                     const url = URL.createObjectURL(new Blob([res.data]))
@@ -399,11 +606,11 @@ export default function TaxonomyPage() {
                     a.click()
                     URL.revokeObjectURL(url)
                   } catch {}
-                }}
-                className="text-xs text-gray-500 hover:text-gray-700 mt-1 ml-3"
-              >
-                导出 ZIP
-              </button>
+                }} className="text-xs text-gray-500 hover:text-gray-700">导出 ZIP</button>
+              </div>
+            </>
+            )
+          })()}
             </div>
           )}
         </div>
@@ -420,10 +627,6 @@ export default function TaxonomyPage() {
               className="flex-1 px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
               onKeyDown={(e) => e.key === 'Enter' && handleSaveTag()}
             />
-            <div className="flex bg-gray-100 rounded-xl p-0.5">
-              <button onClick={() => setTagSort('name')} className={`px-3 py-1.5 text-sm rounded-lg transition-all ${tagSort === 'name' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>名称</button>
-              <button onClick={() => setTagSort('created_at')} className={`px-3 py-1.5 text-sm rounded-lg transition-all ${tagSort === 'created_at' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>创建时间</button>
-            </div>
             <button 
               onClick={handleSaveTag}
               disabled={!tagName.trim() || saving}
@@ -655,6 +858,62 @@ export default function TaxonomyPage() {
             <div className="p-6 pt-4 border-t border-gray-100 flex gap-3">
               <button onClick={() => setShowDocModal(false)} className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200">取消</button>
               <button onClick={handleConfirmAssign} className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600">确认分配</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New Collection Modal */}
+      {showCollModal && (
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <h3 className="text-xl font-semibold text-gray-900 mb-4">新建合集</h3>
+            <input
+              type="text"
+              value={collName}
+              onChange={(e) => setCollName(e.target.value)}
+              placeholder="输入合集名称"
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && handleCreateCollection()}
+            />
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setShowCollModal(false)} className="flex-1 px-5 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 transition-colors">取消</button>
+              <button onClick={handleCreateCollection} disabled={!collName.trim()} className="flex-1 px-5 py-2.5 bg-gradient-to-r from-yellow-500 to-orange-600 text-white font-medium rounded-xl hover:from-yellow-600 hover:to-orange-700 transition-all disabled:opacity-50">创建</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Collection Assign Modal */}
+      {showCollAssign && (
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
+            <div className="p-6 pb-0">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">分配文档到合集</h3>
+            </div>
+            <div className="flex-1 overflow-auto p-6 pt-2 space-y-2">
+              {assignColDocs.map((doc: any) => (
+                <label key={doc.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={assignSelectedIds.has(doc.id)}
+                    onChange={(e) => {
+                      const newSet = new Set(assignSelectedIds)
+                      if (e.target.checked) newSet.add(doc.id)
+                      else newSet.delete(doc.id)
+                      setAssignSelectedIds(newSet)
+                    }}
+                    className="rounded border-gray-300 text-blue-600"
+                  />
+                  <span className="text-sm text-gray-900">{doc.title}</span>
+                  <span className="text-xs text-gray-500 ml-auto">{doc.author_name}</span>
+                </label>
+              ))}
+            </div>
+            <div className="p-6 pt-4 border-t border-gray-100 flex gap-3">
+              <button onClick={() => setShowCollAssign(false)} className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200">取消</button>
+              <button onClick={handleConfirmCollAssign} className="flex-1 px-4 py-2 bg-yellow-500 text-white rounded-xl hover:bg-yellow-600">确认分配</button>
             </div>
           </div>
         </div>

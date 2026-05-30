@@ -30,6 +30,18 @@ export default function Home() {
   const [classified, setClassified] = useState(false)
   const pageSize = 5
   const navigate = useNavigate()
+  const [showCollectionDocs, setShowCollectionDocs] = useState(false)
+  const [activeCollectionName, setActiveCollectionName] = useState('')
+  const [activeCollectionDocs, setActiveCollectionDocs] = useState<any[]>([])
+
+  const openCollectionDocs = async (collId: string, collName: string) => {
+    setActiveCollectionName(collName)
+    try {
+      const res = await api.get(`/collections/${collId}/documents`)
+      setActiveCollectionDocs(res.data)
+    } catch {}
+    setShowCollectionDocs(true)
+  }
 
   useEffect(() => {
     setPage(1)
@@ -147,6 +159,69 @@ export default function Home() {
     }
   }
 
+  const renderDocCard = (doc: any) => (
+    <div
+      onClick={() => navigate(`/doc/${doc.id}`)}
+      className="p-5 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-gray-200 cursor-pointer transition-all group"
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/plain', String(doc.id))
+        e.dataTransfer.effectAllowed = 'move'
+      }}
+    >
+      <h3 className="font-medium text-lg text-gray-900 group-hover:text-blue-600 transition-colors cursor-grab active:cursor-grabbing">
+        {doc.title}
+        {doc.version > 0 && <span className="text-sm text-gray-400 ml-1 font-normal">v{doc.version}</span>}
+        {(doc as any).collection_name && (
+          <span onClick={e => { e.stopPropagation(); openCollectionDocs((doc as any).collection_id, (doc as any).collection_name); }} className="inline-flex items-center gap-1 ml-2 px-2 py-0.5 text-xs text-yellow-700 bg-yellow-100 rounded-full cursor-pointer hover:bg-yellow-200 transition-colors align-middle">
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+            {(doc as any).collection_name}
+          </span>
+        )}
+      </h3>
+      <div className="flex flex-wrap items-center gap-3 md:gap-6 mt-3 text-xs md:text-sm text-gray-500">
+        <span className="flex items-center gap-1.5">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+          <span className="hidden sm:inline">{doc.author_name}</span>
+          <span className="sm:hidden">{doc.author_name.slice(0, 4)}</span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+          {doc.view_count || 0}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+          {doc.comment_count || 0}
+        </span>
+        {doc.liked ? (
+          <span className="flex items-center gap-1.5 text-red-500">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
+          </span>
+        ) : null}
+        <span className="hidden md:flex items-center gap-1.5">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          {new Date(doc.updated_at).toLocaleDateString('zh-CN')}
+        </span>
+        {doc.tags && (
+          <span className="flex items-center gap-1.5 truncate max-w-[80px] md:max-w-none">
+            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
+            <span className="truncate">{doc.tags}</span>
+          </span>
+        )}
+        <span className={`flex items-center gap-1.5 ${doc.visibility === 'public' ? 'text-green-600' : 'text-gray-400'}`}>
+          {doc.visibility === 'public' ? (
+            <svg className="w-4 h-4 hidden sm:flex" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          ) : (
+            <svg className="w-4 h-4 hidden sm:flex" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+          )}
+          <span className="hidden sm:inline">{doc.visibility === 'public' ? '公开' : '私有'}</span>
+          <span className="sm:hidden">{doc.visibility === 'public' ? '🌐' : '🔒'}</span>
+        </span>
+      </div>
+    </div>
+  )
+
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 md:mb-8">
@@ -241,76 +316,7 @@ export default function Home() {
       </div>
       
       <div className="grid gap-4">
-        {docs.map(doc => (
-          <div
-            key={doc.id}
-            onClick={() => navigate(`/doc/${doc.id}`)}
-            className="p-5 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-gray-200 cursor-pointer transition-all group"
-            draggable
-            onDragStart={(e) => {
-              e.dataTransfer.setData('text/plain', String(doc.id))
-              e.dataTransfer.effectAllowed = 'move'
-            }}
-          >
-            <h3 className="font-medium text-lg text-gray-900 group-hover:text-blue-600 transition-colors cursor-grab active:cursor-grabbing">{doc.title}{doc.version > 0 && <span className="text-sm text-gray-400 ml-1 font-normal">v{doc.version}</span>}</h3>
-            <div className="flex flex-wrap items-center gap-3 md:gap-6 mt-3 text-xs md:text-sm text-gray-500">
-              <span className="flex items-center gap-1.5">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                <span className="hidden sm:inline">{doc.author_name}</span>
-                <span className="sm:hidden">{doc.author_name.slice(0, 4)}</span>
-              </span>
-              <span className="flex items-center gap-1.5">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                {doc.view_count || 0}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-                {doc.comment_count || 0}
-              </span>
-              {doc.liked ? (
-                <span className="flex items-center gap-1.5 text-red-500">
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-                  </svg>
-                </span>
-              ) : null}
-              <span className="hidden md:flex items-center gap-1.5">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                {new Date(doc.updated_at).toLocaleDateString('zh-CN')}
-              </span>
-              {doc.tags && (
-                <span className="flex items-center gap-1.5 truncate max-w-[80px] md:max-w-none">
-                  <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                  </svg>
-                  <span className="truncate">{doc.tags}</span>
-                </span>
-              )}
-              <span className={`flex items-center gap-1.5 ${(doc as any).visibility === 'public' ? 'text-green-600' : 'text-gray-400'}`}>
-                {(doc as any).visibility === 'public' ? (
-                  <svg className="w-4 h-4 hidden sm:flex" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                ) : (
-                  <svg className="w-4 h-4 hidden sm:flex" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                  </svg>
-                )}
-                <span className="hidden sm:inline">{(doc as any).visibility === 'public' ? '公开' : '私有'}</span>
-                <span className="sm:hidden">{(doc as any).visibility === 'public' ? '🌐' : '🔒'}</span>
-              </span>
-            </div>
-          </div>
-        ))}
+        {docs.map(doc => <div key={doc.id}>{renderDocCard(doc)}</div>)}
         {docs.length === 0 && (
           <div className="text-center py-16">
             <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-2xl mb-4">
@@ -406,6 +412,35 @@ export default function Home() {
               >
                 {creating ? '创建中...' : '创建'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showCollectionDocs && (
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setShowCollectionDocs(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-6 pb-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <svg className="w-5 h-5 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+                {activeCollectionName}
+                <span className="text-sm font-normal text-gray-400">({activeCollectionDocs.length} 篇)</span>
+              </h3>
+              <button onClick={() => setShowCollectionDocs(false)} className="p-1 hover:bg-gray-100 rounded-lg">
+                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-6 space-y-3">
+              {activeCollectionDocs.map((doc: any) => (
+                <div
+                  key={doc.id}
+                  onClick={() => { navigate(`/doc/${doc.id}`); setShowCollectionDocs(false); }}
+                  className="p-4 bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:border-gray-200 cursor-pointer transition-all"
+                >
+                  <div className="font-medium text-gray-900">{doc.title}</div>
+                  <div className="text-xs text-gray-500 mt-1">{doc.author_name} · {new Date(doc.updated_at).toLocaleDateString('zh-CN')}</div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

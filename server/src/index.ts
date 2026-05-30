@@ -14,6 +14,7 @@ import viewsRouter from './routes/views';
 import importExportRouter from './routes/importExport';
 import meetingsRouter from './routes/meetings';
 import wpsRouter from './routes/wps';
+import collectionsRouter from './routes/collections';
 
 const app = express();
 const PORT = 3001;
@@ -38,6 +39,7 @@ function main() {
   app.use('/api/import-export', importExportRouter);
   app.use('/api/meetings', meetingsRouter);
   app.use('/api/wps', wpsRouter);
+  app.use('/api', collectionsRouter);
 
   app.get('/api/health', (req: Request, res: Response) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
