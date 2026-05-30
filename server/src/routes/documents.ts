@@ -605,10 +605,45 @@ router.get('/:id', authMiddleware, (req: AuthRequest, res: Response) => {
     LEFT JOIN categories c ON dc.category_id = c.id AND c.user_id = ?
     WHERE d.id = ? AND (d.visibility = 'public' OR d.author_id = ?)
     GROUP BY d.id
-  `, [userId, userId, req.params.id, userId]);
+  `, [userId, userId, req.params.id, userId]) as any[];
   const doc = docs[0];
   if (!doc) {
     return res.status(404).json({ error: '文档不存在' });
+  }
+  const dc = run('SELECT collection_id FROM document_categories WHERE document_id = ? AND collection_id IS NOT NULL', [req.params.id]) as any[];
+  if (dc.length > 0 && dc[0].collection_id) {
+    doc.collection_id = dc[0].collection_id;
+    const colName = run('SELECT name FROM collections WHERE id = ?', [doc.collection_id]) as any[];
+    doc.collection_name = colName[0]?.name || '';
+    const latestSort = run(`
+      SELECT dc.collection_sort_order FROM documents d
+      JOIN document_categories dc ON d.id = dc.document_id
+      WHERE dc.collection_id = ? AND d.title = ? AND d.author_id = ?
+      ORDER BY d.version DESC LIMIT 1
+    `, [doc.collection_id, doc.title, doc.author_id]) as any[];
+    if (latestSort.length > 0) {
+      const sortOrder = latestSort[0].collection_sort_order;
+      const prev = run(`
+        SELECT d.id, d.title FROM documents d
+        JOIN document_categories dc ON d.id = dc.document_id
+        WHERE dc.collection_id = ? AND dc.collection_sort_order < ?
+          AND (d.visibility = 'public' OR d.author_id = ?)
+          AND d.id = (SELECT d2.id FROM documents d2 WHERE d2.title = d.title AND d2.author_id = d.author_id ORDER BY d2.version DESC LIMIT 1)
+        ORDER BY dc.collection_sort_order DESC, d.updated_at DESC LIMIT 1
+      `, [doc.collection_id, sortOrder, userId]) as any[];
+      const next = run(`
+        SELECT d.id, d.title FROM documents d
+        JOIN document_categories dc ON d.id = dc.document_id
+        WHERE dc.collection_id = ? AND dc.collection_sort_order > ?
+          AND (d.visibility = 'public' OR d.author_id = ?)
+          AND d.id = (SELECT d2.id FROM documents d2 WHERE d2.title = d.title AND d2.author_id = d.author_id ORDER BY d2.version DESC LIMIT 1)
+        ORDER BY dc.collection_sort_order ASC, d.updated_at DESC LIMIT 1
+      `, [doc.collection_id, sortOrder, userId]) as any[];
+      doc.prev_doc_id = prev[0]?.id || null;
+      doc.prev_doc_title = prev[0]?.title || null;
+      doc.next_doc_id = next[0]?.id || null;
+      doc.next_doc_title = next[0]?.title || null;
+    }
   }
   res.json(doc);
 });

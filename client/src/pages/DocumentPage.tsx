@@ -13,6 +13,12 @@ interface Doc {
   author_name: string
   created_at: string
   updated_at: string
+  collection_id?: number
+  collection_name?: string
+  prev_doc_id?: number | null
+  prev_doc_title?: string | null
+  next_doc_id?: number | null
+  next_doc_title?: string | null
 }
 
 interface Comment {
@@ -694,11 +700,43 @@ export default function DocumentPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h1 className="text-lg md:text-xl font-semibold text-gray-900 truncate">{doc.title} {doc.version > 0 && <span className="text-sm font-normal text-gray-400 ml-1">v{doc.version}</span>}</h1>
               <p className="text-xs md:text-sm text-gray-500 truncate">
                 {doc.author_name} · {new Date(doc.updated_at).toLocaleString('zh-CN')}
               </p>
+              {doc.collection_id && (
+                <div className="flex items-center gap-2 mt-2">
+                  <button
+                    onClick={() => doc.prev_doc_id && navigate(`/doc/${doc.prev_doc_id}`)}
+                    disabled={!doc.prev_doc_id}
+                    title={doc.prev_doc_title || '上一份'}
+                    className="flex items-center gap-1 px-2.5 py-1 text-xs text-gray-500 bg-gray-50 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 17l-5-5m0 0l5-5m-5 5h12" />
+                    </svg>
+                    上一篇
+                  </button>
+                  <span className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-yellow-50 text-yellow-700 rounded-md">
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                    {doc.collection_name}
+                  </span>
+                  <button
+                    onClick={() => doc.next_doc_id && navigate(`/doc/${doc.next_doc_id}`)}
+                    disabled={!doc.next_doc_id}
+                    title={doc.next_doc_title || '下一份'}
+                    className="flex items-center gap-1 px-2.5 py-1 text-xs text-gray-500 bg-gray-50 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    下一篇
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           
