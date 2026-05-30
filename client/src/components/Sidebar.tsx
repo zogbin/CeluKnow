@@ -13,6 +13,7 @@ interface Category {
 interface Doc {
   id: number
   title: string
+  version: number
   category_id?: number
   visibility?: string
   sort_order?: number
@@ -62,7 +63,7 @@ export default function Sidebar({ onClose, defaultCollapsed = false }: SidebarPr
         const catDocs = categoryDocs[cat.id] || []
         for (const d of catDocs) {
           if (!seenDocIds.has(d.id)) {
-            docs.push({ id: d.id, title: d.title, category_id: cat.id, visibility: d.visibility, sort_order: d.sort_order })
+            docs.push({ id: d.id, title: d.title, version: d.version || 0, category_id: cat.id, visibility: d.visibility, sort_order: d.sort_order })
             seenDocIds.add(d.id)
           }
         }
@@ -70,7 +71,7 @@ export default function Sidebar({ onClose, defaultCollapsed = false }: SidebarPr
       // Add uncategorized docs (no sort_order needed)
       for (const d of uncategorized) {
         if (!seenDocIds.has(d.id)) {
-          docs.push({ id: d.id, title: d.title, visibility: d.visibility })
+          docs.push({ id: d.id, title: d.title, version: d.version || 0, visibility: d.visibility })
           seenDocIds.add(d.id)
         }
       }
@@ -266,6 +267,7 @@ export default function Sidebar({ onClose, defaultCollapsed = false }: SidebarPr
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                           </svg>
                           <span className="truncate text-sm">{doc.title}</span>
+                          {doc.version > 0 && <span className="text-[10px] text-gray-400 ml-auto flex-shrink-0">v{doc.version}</span>}
                         </Link>
                       ))}
                     </div>
@@ -301,6 +303,7 @@ export default function Sidebar({ onClose, defaultCollapsed = false }: SidebarPr
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
                       <span className="truncate text-sm">{doc.title}</span>
+                      {doc.version > 0 && <span className="text-[10px] text-gray-400 ml-auto flex-shrink-0">v{doc.version}</span>}
                     </Link>
                   ))}
                 </div>

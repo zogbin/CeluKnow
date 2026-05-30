@@ -117,7 +117,6 @@ router.get('/sidebar-data', authMiddleware, (req: AuthRequest, res: Response) =>
   const userId = req.user!.id;
   const userCats = run('SELECT * FROM categories WHERE user_id = ? ORDER BY name', [userId]) as any[];
   const systemCats = run('SELECT * FROM categories WHERE is_system = 1 ORDER BY name') as any[];
-  // Deduplicate by name: user's own category takes precedence over system
   const catMap = new Map<string, any>();
   for (const cat of systemCats) catMap.set(cat.name, cat);
   for (const cat of userCats) catMap.set(cat.name, cat);
@@ -129,24 +128,73 @@ router.get('/sidebar-data', authMiddleware, (req: AuthRequest, res: Response) =>
 
   for (const cat of categories) {
     const docs = run(`
-      SELECT d.id, d.title, d.visibility, dc.sort_order
+      SELECT d.id, d.title, d.version, d.visibility, dc.sort_order
       FROM documents d
       JOIN document_categories dc ON d.id = dc.document_id
       WHERE dc.category_id = ? AND (d.visibility = 'public' OR d.author_id = ?)
       ORDER BY dc.sort_order ASC, d.updated_at DESC
     `, [cat.id, userId]) as any[];
-    categoryDocs[cat.id] = docs;
+    // Keep only latest version per title+author
+    const latestMap = new Map<string, any>();
     for (const d of docs) {
+      const key = `${d.title}|${userId}`;
+      const prev = latestMap.get(key);
+      if (!prev || d.version > prev.version) latestMap.set(key, d);
+    }
+    categoryDocs[cat.id] = [...latestMap.values()];
+    for (const d of categoryDocs[cat.id]) {
       allDocIds.add(d.id);
       assignedDocIds.add(d.id);
     }
   }
 
-  // Uncategorized: all non-public docs not in any category
-  const allDocs = run('SELECT id, title, visibility FROM documents WHERE author_id = ? AND visibility != \'public\'', [userId]) as any[];
-  const uncategorized = allDocs.filter((d: any) => !assignedDocIds.has(d.id));
+  // Uncategorized: latest version per title for non-public docs
+  const allDocs = run('SELECT id, title, version, visibility FROM documents WHERE author_id = ? AND visibility != \'public\'', [userId]) as any[];
+  const unassigned = allDocs.filter((d: any) => !assignedDocIds.has(d.id));
+  const latestUncat = new Map<string, any>();
+  for (const d of unassigned) {
+    const key = `${d.title}|${userId}`;
+    const prev = latestUncat.get(key);
+    if (!prev || d.version > prev.version) latestUncat.set(key, d);
+  }
+  const uncategorized = [...latestUncat.values()];
 
   res.json({ categories, categoryDocs, uncategorized });
+});
+
+// List all versions of a document by title
+router.get('/versions/:title', authMiddleware, (req: AuthRequest, res: Response) => {
+  const userId = req.user!.id;
+  const versions = run(`
+    SELECT d.id, d.title, d.version, d.visibility, d.created_at, d.updated_at,
+      u.username as author_name
+    FROM documents d
+    LEFT JOIN users u ON d.author_id = u.id
+    WHERE d.title = ? AND (d.visibility = 'public' OR d.author_id = ?)
+    ORDER BY d.version DESC
+  `, [req.params.title, userId]);
+  res.json(versions);
+});
+
+// Diff between two versions of a document
+router.get('/:id/diff', authMiddleware, (req: AuthRequest, res: Response) => {
+  const userId = req.user!.id;
+  const { other } = req.query;
+  if (!other) return res.status(400).json({ error: '需要 other 参数' });
+
+  const current = run('SELECT id, title, version, content FROM documents WHERE id = ? AND (visibility = \'public\' OR author_id = ?)', [req.params.id, userId]) as any[];
+  const otherDoc = run('SELECT id, title, version, content FROM documents WHERE id = ? AND (visibility = \'public\' OR author_id = ?)', [other, userId]) as any[];
+
+  if (current.length === 0 || otherDoc.length === 0) {
+    return res.status(404).json({ error: '文档不存在' });
+  }
+
+  res.json({
+    current: { id: current[0].id, title: current[0].title, version: current[0].version },
+    other: { id: otherDoc[0].id, title: otherDoc[0].title, version: otherDoc[0].version },
+    currentContent: current[0].content || '',
+    otherContent: otherDoc[0].content || '',
+  });
 });
 
 router.get('/knowledge-index', authMiddleware, (req: AuthRequest, res: Response) => {
@@ -233,7 +281,7 @@ router.get('/query', authMiddleware, (req: AuthRequest, res: Response) => {
     const idParams = ids.map(() => '?').join(',');
 
     const rows = run(`
-      SELECT d.id, d.title${includeFull ? ', d.content' : ''}, d.author_id,
+      SELECT d.id, d.title, d.version${includeFull ? ', d.content' : ''}, d.author_id,
         d.visibility, d.created_at, d.updated_at,
         u.username as author_name,
         GROUP_CONCAT(t.name) as tags,
@@ -258,6 +306,7 @@ router.get('/query', authMiddleware, (req: AuthRequest, res: Response) => {
       const entry: any = {
         id: row.id,
         title: row.title,
+        version: row.version || 0,
         score: scoreMap.get(row.id) || 0,
         author_name: row.author_name,
         tags: row.tags || null,
@@ -391,16 +440,37 @@ router.get('/', authMiddleware, (req: AuthRequest, res: Response) => {
 
 router.get('/graph', authMiddleware, (req: AuthRequest, res: Response) => {
   const userId = req.user!.id
-  const docs = run("SELECT id, title FROM documents WHERE visibility = 'public' OR author_id = ?", [userId]) as any[];
-  const allDocs = run("SELECT id, content FROM documents WHERE visibility = 'public' OR author_id = ?", [userId]) as any[];
+  // Latest version per title
+  const docs = run(`
+    SELECT d.id, d.title, d.version FROM documents d
+    INNER JOIN (
+      SELECT title, author_id, MAX(version) as maxv FROM documents
+      WHERE visibility = 'public' OR author_id = ?
+      GROUP BY title, author_id
+    ) l ON d.title = l.title AND d.author_id = l.author_id AND d.version = l.maxv
+  `, [userId]) as any[];
+  const allDocs = run(`
+    SELECT d.id, d.content FROM documents d
+    INNER JOIN (
+      SELECT title, author_id, MAX(version) as maxv FROM documents
+      WHERE visibility = 'public' OR author_id = ?
+      GROUP BY title, author_id
+    ) l ON d.title = l.title AND d.author_id = l.author_id AND d.version = l.maxv
+  `, [userId]) as any[];
   // Only keep [[wiki link]] edges — tag/category edges create too much noise
   const links: any[] = [];
   const linkSet = new Set<string>();
   for (const doc of allDocs) {
     const matches = (doc.content || '').match(/\[\[([^\]]+)\]\]/g) || [];
     for (const match of matches) {
-      const title = match.replace('[[', '').replace(']]', '');
-      const target = docs.find(d => d.title === title);
+      const inner = match.replace('[[', '').replace(']]', '');
+      // Support [[Title(v2)]] syntax
+      const verMatch = inner.match(/^(.+)\(v(\d+)\)$/);
+      const title = verMatch ? verMatch[1] : inner;
+      const version = verMatch ? parseInt(verMatch[2]) : undefined;
+      const target = version
+        ? docs.find(d => d.title === title && d.version === version)
+        : docs.find(d => d.title === title);
       if (target) {
         const key = `${Math.min(doc.id, target.id)}-${Math.max(doc.id, target.id)}`
         if (!linkSet.has(key)) {
@@ -520,21 +590,45 @@ router.get('/:id', authMiddleware, (req: AuthRequest, res: Response) => {
 });
 
 router.post('/', authMiddleware, roleMiddleware(['admin', 'editor']), (req: AuthRequest, res: Response) => {
-  const { title, folder_path, content, visibility = 'private' } = req.body;
+  const { title, version = 0, folder_path, content, visibility = 'private' } = req.body;
   if (!title) {
     return res.status(400).json({ error: '标题必填' });
   }
-  const existing = run('SELECT id FROM documents WHERE title = ?', [title]);
+  const existing = run('SELECT id FROM documents WHERE title = ? AND version = ? AND author_id = ?', [title, version, req.user!.id]);
   if (existing.length > 0) {
-    return res.status(409).json({ error: '标题已存在' });
+    return res.status(409).json({ error: '标题和版本号已存在' });
   }
   const id = runInsert(
-    'INSERT INTO documents (title, folder_path, content, author_id, visibility) VALUES (?, ?, ?, ?, ?)',
-    [title, folder_path || '/', content || '', req.user!.id, visibility]
+    'INSERT INTO documents (title, version, folder_path, content, author_id, visibility) VALUES (?, ?, ?, ?, ?, ?)',
+    [title, version, folder_path || '/', content || '', req.user!.id, visibility]
   );
-  storage.writeDocument(folder_path || '/', title, content || '');
+  storage.writeDocument(folder_path || '/', `${title}${version > 0 ? `_v${version}` : ''}`, content || '');
   rebuildUserIndex(req.user!.id);
-  res.json({ id, title, folder_path: folder_path || '/', visibility });
+  res.json({ id, title, version, folder_path: folder_path || '/', visibility });
+});
+
+// Create new version of an existing document
+router.post('/:id/versions', authMiddleware, roleMiddleware(['admin', 'editor']), (req: AuthRequest, res: Response) => {
+  const docs = run('SELECT * FROM documents WHERE id = ?', [req.params.id]);
+  const doc = docs[0];
+  if (!doc) return res.status(404).json({ error: '文档不存在' });
+  if (req.user!.role !== 'admin' && doc.author_id !== req.user!.id) return res.status(403).json({ error: '权限不足' });
+
+  // Find max version for this title+author
+  const maxVer = run('SELECT MAX(version) as mv FROM documents WHERE title = ? AND author_id = ?', [doc.title, req.user!.id]);
+  const newVersion = (maxVer[0]?.mv || 0) + 1;
+
+  const id = runInsert(
+    'INSERT INTO documents (title, version, folder_path, content, author_id, visibility) VALUES (?, ?, ?, ?, ?, ?)',
+    [doc.title, newVersion, doc.folder_path, doc.content, req.user!.id, doc.visibility]
+  );
+  runUpdate('INSERT INTO document_categories (document_id, category_id) SELECT ?, category_id FROM document_categories WHERE document_id = ?', [id, doc.id]);
+  const tags = run('SELECT tag_id FROM document_tags WHERE document_id = ?', [doc.id]) as any[];
+  for (const t of tags) {
+    runInsert('INSERT OR IGNORE INTO document_tags (document_id, tag_id) VALUES (?, ?)', [id, t.tag_id]);
+  }
+  rebuildUserIndex(req.user!.id);
+  res.json({ id, title: doc.title, version: newVersion });
 });
 
 router.put('/:id', authMiddleware, roleMiddleware(['admin', 'editor']), async (req: AuthRequest, res: Response) => {
@@ -551,10 +645,10 @@ router.put('/:id', authMiddleware, roleMiddleware(['admin', 'editor']), async (r
   const newTitle = title || doc.title;
 
   if (newTitle !== doc.title) {
-    // Check duplicate title (excluding self)
-    const dup = run('SELECT id FROM documents WHERE title = ? AND id != ?', [newTitle, req.params.id]);
+    // Check duplicate title+version (excluding self)
+    const dup = run('SELECT id FROM documents WHERE title = ? AND version = ? AND author_id = ? AND id != ?', [newTitle, doc.version, req.user!.id, req.params.id]);
     if (dup.length > 0) {
-      return res.status(409).json({ error: '标题已存在' });
+      return res.status(409).json({ error: '标题和版本号已存在' });
     }
     // Update wiki links in all other documents
     const oldTitle = doc.title;
@@ -586,6 +680,8 @@ router.put('/:id', authMiddleware, roleMiddleware(['admin', 'editor']), async (r
       'INSERT INTO document_versions (document_id, content, author_id, message) VALUES (?, ?, ?, ?)',
       [req.params.id, doc.content, req.user!.id, '自动保存版本']
     );
+    // Cap auto-save history at 2 entries per document
+    runUpdate('DELETE FROM document_versions WHERE id NOT IN (SELECT id FROM document_versions WHERE document_id = ? ORDER BY created_at DESC LIMIT 2) AND document_id = ?', [req.params.id, req.params.id]);
   }
   runUpdate(
     'UPDATE documents SET title = ?, content = ?, folder_path = ?, visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',

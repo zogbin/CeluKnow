@@ -25,6 +25,7 @@ const SCHEMA_SQL = `
     content TEXT,
     author_id INTEGER NOT NULL,
     visibility TEXT DEFAULT 'private' CHECK(visibility IN ('public', 'private')),
+    version INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (author_id) REFERENCES users(id)
@@ -244,6 +245,10 @@ function runMigrations(): void {
 
   if (!hasColumn('meetings', 'meeting_end')) {
     try { db.exec('ALTER TABLE meetings ADD COLUMN meeting_end DATETIME'); } catch (e) { console.log('meetings migration:', e); }
+  }
+
+  if (!hasColumn('documents', 'version')) {
+    try { db.exec('ALTER TABLE documents ADD COLUMN version INTEGER DEFAULT 0'); } catch (e) { console.log('documents version migration:', e); }
   }
 }
 

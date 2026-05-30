@@ -75,9 +75,10 @@ router.post('/import', authMiddleware, async (req: AuthRequest, res: Response) =
             [folder, userId, '#6366f1', 'folder']);
         }
         
-        const existingDoc = run('SELECT id FROM documents WHERE title = ?', [title]);
+        const version = parseInt(frontMatter.version) || 0;
+        const existingDoc = run('SELECT id FROM documents WHERE title = ? AND version = ? AND author_id = ?', [title, version, authorId]);
         if (existingDoc.length > 0) {
-          results.push({ name: file.name, success: false, error: `标题已存在: ${title}` });
+          results.push({ name: file.name, success: false, error: `标题和版本已存在: ${title}${version > 0 ? `(v${version})` : ''}` });
           continue;
         }
         const getLocalNow = () => {
@@ -92,8 +93,8 @@ router.post('/import', authMiddleware, async (req: AuthRequest, res: Response) =
 }
 const now = getLocalNow()
         const docId = runInsert(
-          `INSERT INTO documents (title, content, author_id, visibility, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-          [title, body, authorId, visibility, createdAt || now, updatedAt || now]
+          `INSERT INTO documents (title, version, content, author_id, visibility, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [title, version, body, authorId, visibility, createdAt || now, updatedAt || now]
         );
         
         runUpdate('INSERT INTO document_categories (document_id, category_id) VALUES (?, ?)', [docId, categoryId]);
@@ -196,15 +197,16 @@ folderMap.set(categoryFromFm, categoryId);
           }
         }
         
-        const existingDoc = run('SELECT id FROM documents WHERE title = ?', [title]);
+        const version = parseInt(frontMatter.version) || 0;
+        const existingDoc = run('SELECT id FROM documents WHERE title = ? AND version = ? AND author_id = ?', [title, version, authorId]);
         if (existingDoc.length > 0) {
-          results.push({ name, success: false, error: `标题已存在: ${title}` });
+          results.push({ name, success: false, error: `标题和版本已存在: ${title}${version > 0 ? `(v${version})` : ''}` });
           continue;
         }
         
         const docId = runInsert(
-          `INSERT INTO documents (title, content, author_id, visibility, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-          [title, body, authorId, visibility, createdAt || null, updatedAt || null]
+          `INSERT INTO documents (title, version, content, author_id, visibility, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [title, version, body, authorId, visibility, createdAt || null, updatedAt || null]
         );
         
         runUpdate('INSERT INTO document_categories (document_id, category_id) VALUES (?, ?)', [docId, categoryId]);
@@ -283,6 +285,7 @@ router.get('/export', authMiddleware, (req: AuthRequest, res: Response) => {
       }
       categoryMap.get(catName)!.push({
         title: doc.title,
+        version: doc.version || 0,
         content: doc.content,
         tags: doc.tags,
         category: catName,
@@ -301,6 +304,7 @@ router.get('/export', authMiddleware, (req: AuthRequest, res: Response) => {
         for (const doc of catDocs) {
           const frontMatter = `---
 title: ${doc.title}
+version: ${doc.version || 0}
 category: ${catName}
 tags: ${doc.tags || ''}
 visibility: ${doc.visibility}
@@ -327,6 +331,7 @@ author: ${doc.author}
       for (const doc of documents) {
         const frontMatter = `---
 title: ${doc.title}
+version: ${doc.version || 0}
 category: ${category}
 tags: ${doc.tags || ''}
 visibility: ${doc.visibility}
@@ -369,6 +374,7 @@ router.get('/export/:id', authMiddleware, (req: AuthRequest, res: Response) => {
     }
     const frontMatter = `---
 title: ${doc.title}
+version: ${doc.version || 0}
 category: ${doc.category || ''}
 tags: ${doc.tags || ''}
 visibility: ${doc.visibility}

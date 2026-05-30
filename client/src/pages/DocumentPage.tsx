@@ -7,6 +7,7 @@ import 'highlight.js/styles/github.css'
 interface Doc {
   id: number
   title: string
+  version: number
   content: string
   author_id: number
   author_name: string
@@ -67,8 +68,9 @@ export default function DocumentPage() {
   const user = JSON.parse(localStorage.getItem('user') || '{}')
 
   const loadVersions = async () => {
+    if (!doc) return;
     try {
-      const res = await api.get(`/versions/document/${id}`)
+      const res = await api.get(`/documents/versions/${encodeURIComponent(doc.title)}`)
       setVersions(res.data)
     } catch (err) {
       console.error(err)
@@ -384,14 +386,16 @@ export default function DocumentPage() {
 
   const canEdit = user.role === 'admin' || user.id === doc.author_id
 
-  const handleDocLinkClick = async (title: string) => {
+  const handleDocLinkClick = async (title: string, version?: number) => {
     try {
       const res = await api.get('/documents')
-      const doc = res.data.find((d: any) => d.title === title)
+      const doc = version
+        ? res.data.find((d: any) => d.title === title && d.version === version)
+        : res.data.find((d: any) => d.title === title)
       if (doc) {
         navigate(`/doc/${doc.id}`)
       } else {
-        alert('文档不存在: ' + title)
+        alert('文档不存在: ' + title + (version !== undefined ? `(v${version})` : ''))
       }
     } catch (err) {
       alert('跳转失败')
@@ -574,12 +578,14 @@ export default function DocumentPage() {
     const elements: JSX.Element[] = []
     
     // Phase 1: Protect [[wiki links]] from being consumed by bold/italic patterns.
-    // Replace each [[title]] with a placeholder so **[[title]]** bold matching
-    // can't eat the wiki link syntax.
-    const wikiMap = new Map<string, string>()
-    const protectedText = text.replace(/\[\[([^\]]+)\]\]/g, (_, title: string) => {
+    // Support [[Title]] and [[Title(v2)]] syntax.
+    const wikiMap = new Map<string, { title: string; version?: number }>()
+    const protectedText = text.replace(/\[\[([^\]]+)\]\]/g, (_, raw: string) => {
+      const verMatch = raw.match(/^(.+)\(v(\d+)\)$/)
+      const title = verMatch ? verMatch[1] : raw
+      const version = verMatch ? parseInt(verMatch[2]) : undefined
       const key = `\x00W${wikiMap.size}\x00`
-      wikiMap.set(key, title)
+      wikiMap.set(key, { title, version })
       return key
     })
     
@@ -590,14 +596,14 @@ export default function DocumentPage() {
       const parts = segment.split(/(\x00W\d+\x00)/)
       const children = parts.map((part, i) => {
         if (wikiMap.has(part)) {
-          const title = wikiMap.get(part)!
+          const { title, version } = wikiMap.get(part)!
           return (
             <span
               key={`wl-${keyPrefix}-${i}`}
-              onClick={() => handleDocLinkClick(title)}
+              onClick={() => handleDocLinkClick(title, version)}
               className="text-blue-600 hover:text-blue-700 underline cursor-pointer"
             >
-              {title}
+              {title}{version !== undefined ? <span className="text-gray-400 text-xs ml-0.5">v{version}</span> : null}
             </span>
           )
         }
@@ -609,8 +615,8 @@ export default function DocumentPage() {
     // Restore wiki placeholders back to original [[title]] form (for code, images, links)
     const restoreOriginal = (segment: string) =>
       segment.replace(/\x00W\d+\x00/g, m => {
-        const title = wikiMap.get(m)
-        return title ? `[[${title}]]` : m
+        const entry = wikiMap.get(m)
+        return entry ? `[[${entry.title}${entry.version !== undefined ? `(v${entry.version})` : ''}]]` : m
       })
     
     // Phase 2: Parse inline markdown (bold, italic, images, links, code)
@@ -678,7 +684,7 @@ export default function DocumentPage() {
               </svg>
             </button>
             <div className="min-w-0">
-              <h1 className="text-lg md:text-xl font-semibold text-gray-900 truncate">{doc.title}</h1>
+              <h1 className="text-lg md:text-xl font-semibold text-gray-900 truncate">{doc.title} {doc.version > 0 && <span className="text-sm font-normal text-gray-400 ml-1">v{doc.version}</span>}</h1>
               <p className="text-xs md:text-sm text-gray-500 truncate">
                 {doc.author_name} · {new Date(doc.updated_at).toLocaleString('zh-CN')}
               </p>
@@ -754,6 +760,23 @@ export default function DocumentPage() {
                       className={`px-3 py-2 rounded-xl transition-colors ${showVersions ? 'bg-purple-50 text-purple-600' : 'text-gray-600 hover:bg-gray-100'}`}
                     >
                       历史
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await api.post(`/documents/${id}/versions`)
+                          alert('已创建新版本')
+                          loadVersions()
+                        } catch (err: any) {
+                          alert(err.response?.data?.error || '创建版本失败')
+                        }
+                      }}
+                      className="px-3 py-2 rounded-xl text-gray-600 hover:bg-gray-100 transition-colors"
+                      title="另存为新版本"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
                     </button>
                   </>
                 ) : (
@@ -1140,33 +1163,37 @@ export default function DocumentPage() {
                 versions.map((v: any) => (
                   <div 
                     key={v.id} 
-                    onClick={async () => {
-                      const res = await api.get(`/versions/${v.id}`)
-                      setSelectedVersion(res.data)
+                    onClick={() => {
+                      setSelectedVersion(v)
                     }}
                     className={`p-3 rounded-lg cursor-pointer transition-colors ${selectedVersion?.id === v.id ? 'bg-purple-50 border border-purple-200' : 'bg-gray-50 hover:bg-gray-100'}`}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm text-gray-500">{v.created_at}</span>
+                      <span className="flex items-center gap-2">
+                        <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${v.version === 0 ? 'bg-gray-100 text-gray-500' : 'bg-purple-100 text-purple-700'}`}>v{v.version}</span>
+                        <span className="text-sm text-gray-500">{v.created_at}</span>
+                      </span>
                       <button 
                         onClick={(e) => {
                           e.stopPropagation()
-                          if (confirm('确定要恢复到这个版本吗？当前内容将被覆盖。')) {
-                            api.post(`/versions/${v.id}/restore`).then(async () => {
-                              const docRes = await api.get(`/documents/${id}`)
-                              setContent(docRes.data.content || '')
-                              setShowVersions(false)
-                              setSelectedVersion(null)
-                              alert('已恢复到该版本')
-                            })
+                          if (!doc) return
+                          if (v.id === doc.id) {
+                            alert('当前就是此版本')
+                            return
+                          }
+                          if (confirm(`确定要恢复到这个版本 (v${v.version}) 吗？当前内容将被覆盖。`)) {
+                            setContent(v.content || '')
+                            setShowVersions(false)
+                            setSelectedVersion(null)
+                            alert('已恢复到此版本，请保存')
                           }
                         }}
                         className="text-xs text-blue-600 hover:text-blue-700"
                       >
-                        恢复
+                        恢复到此版本
                       </button>
                     </div>
-                    <p className="text-sm text-gray-600">{v.message || '自动保存'}</p>
+                    <p className="text-sm text-gray-600 truncate">{v.content?.substring(0, 100) || '(空)'}</p>
                   </div>
                 ))
               )}

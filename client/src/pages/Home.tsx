@@ -6,6 +6,7 @@ import api from '../api/auth'
 interface Doc {
   id: number
   title: string
+  version: number
   author_name: string
   updated_at: string
   tags: string
@@ -251,7 +252,7 @@ export default function Home() {
               e.dataTransfer.effectAllowed = 'move'
             }}
           >
-            <h3 className="font-medium text-lg text-gray-900 group-hover:text-blue-600 transition-colors cursor-grab active:cursor-grabbing">{doc.title}</h3>
+            <h3 className="font-medium text-lg text-gray-900 group-hover:text-blue-600 transition-colors cursor-grab active:cursor-grabbing">{doc.title}{doc.version > 0 && <span className="text-sm text-gray-400 ml-1 font-normal">v{doc.version}</span>}</h3>
             <div className="flex flex-wrap items-center gap-3 md:gap-6 mt-3 text-xs md:text-sm text-gray-500">
               <span className="flex items-center gap-1.5">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
